@@ -1,5 +1,193 @@
 // Music Player App
+// TildeSound Player – with Dropbox Integration
 
+const DROPBOX_ACCESS_TOKEN = 'YOUR_ACCESS_TOKEN_HERE'; // <<-- Replace this with your actual Dropbox access token
+const DROPBOX_FOLDER_PATH = ''; // Leave empty for root or set folder like '/music'
+
+let tracksData = []; // This will be filled with Dropbox tracks
+
+const embeddedAudioData = "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZw=="; // base64 dummy
+
+// DOM Elements
+const albumArt = document.getElementById('album-art');
+const trackTitle = document.getElementById('track-title');
+const trackArtist = document.getElementById('track-artist');
+const prevBtn = document.getElementById('prev-btn');
+const playBtn = document.getElementById('play-btn');
+const nextBtn = document.getElementById('next-btn');
+const currentTimeEl = document.getElementById('current-time');
+const durationEl = document.getElementById('duration');
+const progressBar = document.querySelector('.progress');
+const volumeSlider = document.getElementById('volume');
+
+const tracksContainer = document.getElementById('tracks-container');
+const playlistContainer = document.getElementById('playlist-container');
+const clearPlaylistBtn = document.getElementById('clear-playlist-btn');
+const downloadPlaylistBtn = document.getElementById('download-playlist-btn');
+
+const moodButtons = document.querySelectorAll('.mood-btn');
+const genreButtons = document.querySelectorAll('.genre-btn');
+const durationButtons = document.querySelectorAll('.duration-btn');
+
+const audio = new Audio();
+
+let currentTrack = null;
+let isPlaying = false;
+let playlist = [];
+let filteredTracks = [];
+
+async function loadDropboxTracks() {
+    const dbx = new Dropbox.Dropbox({ accessToken: DROPBOX_ACCESS_TOKEN });
+    try {
+        const res = await dbx.filesListFolder({ path: DROPBOX_FOLDER_PATH });
+        const files = res.entries.filter(file =>
+            file.name.endsWith('.mp3') || file.name.endsWith('.wav')
+        );
+
+        let idCounter = 1000;
+
+        for (const file of files) {
+            const linkRes = await dbx.filesGetTemporaryLink({ path: file.path_display });
+
+            tracksData.push({
+                id: idCounter++,
+                title: file.name.replace(/\.[^/.]+$/, ''),
+                artist: "Tilde Sound",
+                src: linkRes.link,
+                albumArt: "assets/images/Tilde_Logo.png",
+                mood: ["chill"],
+                genre: ["ambient"],
+                duration: "medium"
+            });
+        }
+
+        console.log("Loaded Dropbox tracks:", tracksData.length);
+    } catch (err) {
+        console.error("Failed to load Dropbox tracks:", err);
+    }
+}
+
+function initializeWithEmbeddedAudio() {
+    tracksData.forEach(track => {
+        if (track.src && !track.src.startsWith('blob:') && !track.src.startsWith('data:')) {
+            track.originalSrc = track.src;
+            track.src = embeddedAudioData;
+        }
+    });
+}
+
+function renderTracks(tracks) {
+    tracksContainer.innerHTML = '';
+
+    if (tracks.length === 0) {
+        tracksContainer.innerHTML = '<p class="no-tracks">No tracks available.</p>';
+        return;
+    }
+
+    tracks.forEach(track => {
+        const trackElement = document.createElement('div');
+        trackElement.classList.add('track-item');
+        trackElement.dataset.trackId = track.id;
+
+        trackElement.innerHTML = `
+            <div class="track-info">
+                <h4>${track.title}</h4>
+                <p>${track.artist}</p>
+                <div class="track-tags">
+                    ${track.mood.map(m => `<span class="tag mood">${m}</span>`).join('')}
+                    ${track.genre.map(g => `<span class="tag genre">${g}</span>`).join('')}
+                    <span class="tag duration">${track.duration}</span>
+                </div>
+            </div>
+            <div class="track-actions">
+                <button class="play-track-btn"><i class="fas fa-play"></i></button>
+                <button class="add-to-collection-btn"><i class="fas fa-plus"></i></button>
+            </div>
+        `;
+        tracksContainer.appendChild(trackElement);
+    });
+}
+
+function loadTrack(track) {
+    currentTrack = track;
+    trackTitle.textContent = track.title;
+    trackArtist.textContent = track.artist;
+    albumArt.src = track.albumArt || "assets/images/Tilde_Logo.png";
+    audio.src = track.src || embeddedAudioData;
+    audio.load();
+}
+
+function playTrack() {
+    audio.play().then(() => {
+        isPlaying = true;
+        playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    }).catch(err => {
+        console.error("Audio play error:", err);
+    });
+}
+
+function pauseTrack() {
+    audio.pause();
+    isPlaying = false;
+    playBtn.innerHTML = '<i class="fas fa-play"></i>';
+}
+
+function togglePlay() {
+    if (isPlaying) {
+        pauseTrack();
+    } else {
+        playTrack();
+    }
+}
+
+function setupEventListeners() {
+    playBtn.addEventListener('click', togglePlay);
+    nextBtn.addEventListener('click', () => {
+        const idx = filteredTracks.findIndex(t => t.id === currentTrack.id);
+        if (idx !== -1 && idx < filteredTracks.length - 1) {
+            loadTrack(filteredTracks[idx + 1]);
+            playTrack();
+        }
+    });
+    prevBtn.addEventListener('click', () => {
+        const idx = filteredTracks.findIndex(t => t.id === currentTrack.id);
+        if (idx > 0) {
+            loadTrack(filteredTracks[idx - 1]);
+            playTrack();
+        }
+    });
+
+    tracksContainer.addEventListener('click', e => {
+        const item = e.target.closest('.track-item');
+        if (!item) return;
+
+        const trackId = parseInt(item.dataset.trackId);
+        const track = tracksData.find(t => t.id === trackId);
+
+        if (e.target.closest('.play-track-btn')) {
+            loadTrack(track);
+            playTrack();
+        } else if (e.target.closest('.add-to-collection-btn')) {
+            if (!playlist.find(p => p.id === track.id)) {
+                playlist.push(track);
+                alert("Track added to playlist.");
+            }
+        }
+    });
+}
+
+async function initPlayer() {
+    await loadDropboxTracks(); // ← Load tracks dynamically from Dropbox
+    filteredTracks = [...tracksData];
+    renderTracks(filteredTracks);
+    setupEventListeners();
+    if (filteredTracks.length > 0) {
+        loadTrack(filteredTracks[0]);
+    }
+}
+
+// DOM loaded
+document.addEventListener('DOMContentLoaded', initPlayer);
 // Sample tracks data with embedded audio
 let tracksData = [
     {
