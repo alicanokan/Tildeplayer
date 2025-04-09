@@ -1,159 +1,166 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TildeSoundArt Player</title>
-    <link rel="stylesheet" href="css/normalize.css">
-    <link rel="stylesheet" href="css/styles.css">
-    <link rel="stylesheet" href="css/upload.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TildeSoundArt Player</title>
+  <link rel="stylesheet" href="css/normalize.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/upload.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
-    <div class="app-container">
-        <header>
-            <div class="header-logo">
-                <img src="assets/images/togg-seeklogo.png" alt="Togg Logo" class="togg-logo">
-            </div>
-            <div class="header-divider"></div>
-            <nav>
-                <ul>
-                    <li><a href="index.html" class="active">Player</a></li>
-                    <li><a href="javascript:void(0)" id="upload-tracks-link">Upload Tracks</a></li>
-                </ul>
-            </nav>
-        </header>
-        
-        <main>
-            <div class="player-container">
-                <!-- Section 1: Player Controls -->
-                <div class="player-controls">
-                    <div class="now-playing">
-                        <img id="album-art" src="assets/images/Tilde_Logo.png" alt="Album Art">
-                        <div class="track-info">
-                            <h2 id="track-title">Track Title</h2>
-                            <p id="track-artist">Artist Name</p>
-                        </div>
-                        <button id="add-to-collection-btn" class="control-btn" title="Add to Collection"><i class="fas fa-plus"></i></button>
-                    </div>
-                    
-                    <div class="controls">
-                        <button id="prev-btn" class="control-btn"><i class="fas fa-step-backward"></i></button>
-                        <button id="play-btn" class="control-btn"><i class="fas fa-play"></i></button>
-                        <button id="next-btn" class="control-btn"><i class="fas fa-step-forward"></i></button>
-                    </div>
-                    
-                    <div class="progress-container">
-                        <span id="current-time">0:00</span>
-                        <div class="progress-bar">
-                            <div class="progress"></div>
-                        </div>
-                        <span id="duration">0:00</span>
-                    </div>
-                    
-                    <div class="volume-container">
-                        <i class="fas fa-volume-up"></i>
-                        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.7">
-                    </div>
-                </div>
-            </div>
-            
-            <div class="content-container">
-                <!-- Section 2: Mood & Genre Filters -->
-                <div class="filters-container">
-                    <div class="mood-filters">
-                        <h3>Mood</h3>
-                        <div class="filter-buttons">
-                            <button class="mood-btn" data-mood="happy">Happy</button>
-                            <button class="mood-btn" data-mood="chill">Chill</button>
-                            <button class="mood-btn" data-mood="energetic">Energetic</button>
-                            <button class="mood-btn" data-mood="sad">Sad</button>
-                            <button class="mood-btn" data-mood="focus">Focus</button>
-                            <button class="mood-btn" data-mood="relaxed">Relaxed</button>
-                            <button class="mood-btn" data-mood="intense">Intense</button>
-                            <button class="mood-btn" data-mood="romantic">Romantic</button>
-                        </div>
-                    </div>
-                    
-                    <div class="genre-filters">
-                        <h3>Genre</h3>
-                        <div class="filter-buttons">
-                            <button class="genre-btn" data-genre="pop">Pop</button>
-                            <button class="genre-btn" data-genre="rock">Rock</button>
-                            <button class="genre-btn" data-genre="electronic">Electronic</button>
-                            <button class="genre-btn" data-genre="jazz">Jazz</button>
-                            <button class="genre-btn" data-genre="classical">Classical</button>
-                            <button class="genre-btn" data-genre="hiphop">Hip Hop</button>
-                            <button class="genre-btn" data-genre="ambient">Ambient</button>
-                            <button class="genre-btn" data-genre="folk">Folk</button>
-                        </div>
-                    </div>
-                    
-                    <div class="duration-filters">
-                        <h3>Duration</h3>
-                        <div class="filter-buttons">
-                            <button class="duration-btn" data-duration="short">15 sec</button>
-                            <button class="duration-btn" data-duration="medium">30 sec</button>
-                            <button class="duration-btn" data-duration="long">60 sec</button>
-                            <button class="duration-btn" data-duration="extended">60+ sec</button>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Section 3: Track Catalog -->
-                <div class="track-catalog">
-                    <h3>Tracks</h3>
-                    <div class="tracks-list" id="tracks-container">
-                        <!-- Tracks will be populated dynamically with JavaScript -->
-                        <div class="track-item">
-                            <div class="track-info">
-                                <h4>Sample Track 1</h4>
-                                <p>Artist 1</p>
-                                <div class="track-tags">
-                                    <span class="tag mood">Happy</span>
-                                    <span class="tag genre">Pop</span>
-                                </div>
-                            </div>
-                            <div class="track-actions">
-                                <button class="play-track-btn"><i class="fas fa-play"></i></button>
-                                <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
-                            </div>
-                        </div>
-                        <!-- More track items will be added dynamically -->
-                    </div>
-                </div>
-                
-                <!-- Section 4: Playlist -->
-                <div class="playlist-container">
-                    <h3>Collection</h3>
-                    <div class="playlist-actions">
-                        <button id="clear-playlist-btn">Clear All</button>
-                        <button id="download-playlist-btn">Download Collection</button>
-                    </div>
-                    <div class="playlist" id="playlist-container">
-                        <!-- Playlist items will be populated dynamically with JavaScript -->
-                        <div class="playlist-item" draggable="true">
-                            <div class="drag-handle"><i class="fas fa-grip-lines"></i></div>
-                            <div class="playlist-item-info">
-                                <h4>Sample Playlist Track</h4>
-                                <p>Artist Name</p>
-                            </div>
-                            <div class="playlist-item-actions">
-                                <button class="remove-from-playlist-btn"><i class="fas fa-times"></i></button>
-                            </div>
-                        </div>
-                        <!-- More playlist items will be added dynamically -->
-                    </div>
-                </div>
-            </div>
-        </main>
-        
-        <footer>
-            <p>&copy; 2025 TildeSoundArt Player</p>
-        </footer>
-    </div>
+  <div class="app-container">
+    <header>
+      <div class="header-logo">
+        <img src="assets/images/togg-seeklogo.png" alt="Togg Logo" class="togg-logo" />
+      </div>
+      <div class="header-divider"></div>
+      <nav>
+        <ul>
+          <li><a href="index.html" class="active">Player</a></li>
+          <li><a href="upload.html">Upload Tracks</a></li>
+        </ul>
+      </nav>
+    </header>
 
-    <script src="js/common.js"></script>
-    <script src="js/app.js"></script>
+    <main>
+      <div class="player-container">
+        <div class="player-controls">
+          <div class="now-playing">
+            <img id="album-art" src="assets/images/Tilde_Logo.png" alt="Album Art" />
+            <div class="track-info">
+              <h2 id="track-title">Track Title</h2>
+              <p id="track-artist">Artist Name</p>
+            </div>
+            <button id="add-to-collection-btn" class="control-btn" title="Add to Collection"><i class="fas fa-plus"></i></button>
+          </div>
+
+          <div class="controls">
+            <button id="prev-btn" class="control-btn"><i class="fas fa-step-backward"></i></button>
+            <button id="play-btn" class="control-btn"><i class="fas fa-play"></i></button>
+            <button id="next-btn" class="control-btn"><i class="fas fa-step-forward"></i></button>
+          </div>
+
+          <div class="progress-container">
+            <span id="current-time">0:00</span>
+            <div class="progress-bar">
+              <div class="progress"></div>
+            </div>
+            <span id="duration">0:00</span>
+          </div>
+
+          <div class="volume-container">
+            <i class="fas fa-volume-up"></i>
+            <input type="range" id="volume" min="0" max="1" step="0.01" value="0.7" />
+          </div>
+        </div>
+      </div>
+
+      <div class="content-container">
+        <div class="filters-container">
+          <div class="mood-filters">
+            <h3>Mood</h3>
+            <div class="filter-buttons">
+              <button class="mood-btn" data-mood="happy">Happy</button>
+              <button class="mood-btn" data-mood="chill">Chill</button>
+              <button class="mood-btn" data-mood="energetic">Energetic</button>
+              <button class="mood-btn" data-mood="sad">Sad</button>
+              <button class="mood-btn" data-mood="focus">Focus</button>
+              <button class="mood-btn" data-mood="relaxed">Relaxed</button>
+              <button class="mood-btn" data-mood="intense">Intense</button>
+              <button class="mood-btn" data-mood="romantic">Romantic</button>
+            </div>
+          </div>
+
+          <div class="genre-filters">
+            <h3>Genre</h3>
+            <div class="filter-buttons">
+              <button class="genre-btn" data-genre="pop">Pop</button>
+              <button class="genre-btn" data-genre="rock">Rock</button>
+              <button class="genre-btn" data-genre="electronic">Electronic</button>
+              <button class="genre-btn" data-genre="jazz">Jazz</button>
+              <button class="genre-btn" data-genre="classical">Classical</button>
+              <button class="genre-btn" data-genre="hiphop">Hip Hop</button>
+              <button class="genre-btn" data-genre="ambient">Ambient</button>
+              <button class="genre-btn" data-genre="folk">Folk</button>
+            </div>
+          </div>
+
+          <div class="duration-filters">
+            <h3>Duration</h3>
+            <div class="filter-buttons">
+              <button class="duration-btn" data-duration="short">15 sec</button>
+              <button class="duration-btn" data-duration="medium">30 sec</button>
+              <button class="duration-btn" data-duration="long">60 sec</button>
+              <button class="duration-btn" data-duration="extended">60+ sec</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="track-catalog">
+          <h3>Tracks</h3>
+          <div class="tracks-list" id="tracks-container">
+            <!-- Tracks from Dropbox will appear here -->
+          </div>
+        </div>
+
+        <div class="playlist-container">
+          <h3>Collection</h3>
+          <div class="playlist-actions">
+            <button id="clear-playlist-btn">Clear All</button>
+            <button id="download-playlist-btn">Download Collection</button>
+          </div>
+          <div class="playlist" id="playlist-container">
+            <!-- Playlist items appear here -->
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>&copy; 2025 TildeSoundArt Player</p>
+    </footer>
+  </div>
+
+  <!-- JS LIBRARIES -->
+  <script src="https://unpkg.com/dropbox/dist/Dropbox-sdk.min.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/app.js"></script>
+
+  <!-- DROPBOX TRACK LOADER -->
+  <script>
+    const dbx = new Dropbox.Dropbox({ accessToken: 'sl.u.AFqSOM2wdd-wdcxussllXZjwxqDFjj0brsEi6_hYDraw46Kh7vWVVMzsO1D5pzWHU_mKi0EtvW9lTppjMA2-OxYUA-as0xtSjVGAc_oooN6DQK7W2_bsoytv3fPISd3mt0IcGecBSI0zUE7e-etkTflxVJRPt68kR1OQMZvmbDBus2O1rY8_dyMXySFPJilGJhgG30IQCD_vILsKBrbEJ1IExu6u9XcAb_4TAWeNLhmlIY9sE7wNVd2SvfM7mPkKdRUnIgoqIE-dgKUlmphmMxjJ8wSR5bcod94MHAvqZdu25S2JB-kmArpD0bGqVBC4l76S6gvpFQztOlQg68OTipWjfkp_Vr6rynAhW48EsN0YYsQ2zEC2s98yN_40IJN5cAZCh6CmxHyUjKA2TACPZLxmTwsH57ncs66Vk2kcsHjCVk8njmrl37dcIWmx3O1TXRQImgD4D_qfqyuXSzngpc_u9R_kiK7vh5V_CVlZG_Kqbaw0u4_fg6ao5hrvkfnYVT9wKuKNKFKdk2v8krWgHSZ518pG1uMqOsU2n0MwzL9uBzUkYe5cCBM1Zu6KNzdSPcpVlgQspcc_bfNWTsgU9XxWftpoeteA9I627HtnWYdvywbe4u3xtJKijtSSEYhi2rSAaedSZpGEdC-H-uMTrM3iwRYDOn4GdzywBi1EHQfoT6cg_jvTSMyzMc9v66PIMh4GWP0gDRJSSrNqhALQl5jSHARgvcbQYGVgOOOeEDabnYGbZWAG72m5goIXQMkm0egbCHyhAzvEjKOf6t601z8k-4S6Ju6XOpouPTvZ7jJwhBneBbqVld_CVGfr8_xtO7BPqxqW0-3IQdT267DOqL8FmokUvTx9Act6zwKbnD67pxbqBG6aUvIvDLuWraZTRpM7urV7TXiYbDNqgZdmc_Y5YYH6QuPypKnewcZte0dDV43XIZHhBPlqr-cFPKpDqabAfcDLqRHV4DiJ8BXhgXGjKKHAClD1U6HZrTcmG2C1zrmeNW-U0Xrz9VuxFBU6CSG-ihp5MVs4niDbq6-AI8Hnv-HnhYi3_ZfwinAj1_NV3q74IWgqNUOilVq3CQFlJK7u_wkCeoHYltl74MPBJYiU-HVxFdO0MCPR6h26L7HvD-2vn_ytJzeaFcse3ZVV8mZHCCM8yNc1N4xdEwxbL3pBJJ604hQeTcEN0a7FbRE9O409S2A9xeVgZ0LzYgUEc_ltdtpHiUC1VKpmxhkfiUco5e5ywDkrQCcP9d2uV6EmOMwvRW08WHgWIEEsA_IAvtVNPndtLXievY1AH8-UtQm3-P_Yxdes3txhpQtbu5oVgQ' }); // Replace this!
+
+    const DROPBOX_FOLDER_PATH = ''; // or use '/FolderName'
+
+    function loadDropboxTracks() {
+      dbx.filesListFolder({ path: DROPBOX_FOLDER_PATH })
+        .then(response => {
+          const files = response.entries.filter(file => file.name.endsWith('.mp3') || file.name.endsWith('.wav'));
+
+          files.forEach(file => {
+            dbx.filesGetTemporaryLink({ path: file.path_display })
+              .then(linkRes => {
+                const track = {
+                  title: file.name,
+                  artist: "Tilde Sound",
+                  url: linkRes.link,
+                  mood: "chill",
+                  genre: "ambient"
+                };
+                console.log("🎵 Track loaded from Dropbox:", track);
+                // Here you can call your function to render track to UI
+                // Example: addTrackToUI(track);
+              });
+          });
+        })
+        .catch(error => {
+          console.error("❌ Dropbox API error:", error);
+        });
+    }
+
+    loadDropboxTracks();
+  </script>
 </body>
-</html> 
+</html>
