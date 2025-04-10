@@ -1,6 +1,9 @@
 // Storage Service for TildeSoundArt Player
 class StorageService {
     constructor() {
+        console.log('Initializing storage service...');
+        
+        // Core properties
         this.GIST_ID = localStorage.getItem('gistId') || null;
         this.GITHUB_TOKEN = localStorage.getItem('githubToken') || null;
         this.STORAGE_MODE = this.GIST_ID ? 'GIST' : 'LOCAL';
@@ -10,11 +13,76 @@ class StorageService {
         this._initialized = false;
         // Callback for force refresh after sync
         this.forceRefreshAfterSync = null;
+        // Tracks data reference
+        this._tracks = [];
         
+        // Log initial state
         console.log(`Storage mode: ${this.STORAGE_MODE}`);
+        console.log(`Gist ID: ${this.GIST_ID ? 'configured' : 'not configured'}`);
+        console.log(`GitHub token: ${this.GITHUB_TOKEN ? 'configured' : 'not configured'}`);
         
         // Initialize internal storage
         this._init();
+        
+        // Dispatch event to notify other components that storage service is ready
+        window.addEventListener('DOMContentLoaded', () => {
+            this._announceReady();
+        });
+        
+        // Also announce immediately if DOM is already loaded
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            this._announceReady();
+        }
+    }
+    
+    // Add new method to announce when the storage service is ready
+    _announceReady() {
+        this._initialized = true;
+        console.log('Storage service initialization complete');
+        
+        // Create and dispatch a custom event to announce the storage service is ready
+        const event = new CustomEvent('storage-service-ready', {
+            detail: {
+                service: this,
+                storageMode: this.STORAGE_MODE,
+                hasGistId: !!this.GIST_ID,
+                hasToken: !!this.GITHUB_TOKEN
+            },
+            bubbles: true
+        });
+        
+        // Dispatch on window so it can be caught anywhere
+        window.dispatchEvent(event);
+        console.log('Storage service ready event dispatched');
+    }
+    
+    // Initialize internal storage 
+    _init() {
+        try {
+            // Load necessary data into memory
+            const tracks = localStorage.getItem('tracks');
+            const approvedTracks = localStorage.getItem('approvedTracks');
+            const pendingTracks = localStorage.getItem('pendingTracks');
+            
+            // Set up internal properties
+            this._tracks = tracks ? JSON.parse(tracks) : [];
+            this._approvedTracks = approvedTracks ? JSON.parse(approvedTracks) : [];
+            this._pendingTracks = pendingTracks ? JSON.parse(pendingTracks) : [];
+            
+            // Set last sync time if available
+            const lastSync = localStorage.getItem('lastGistSync');
+            if (lastSync) {
+                this.SYNC_TIMESTAMP = lastSync;
+            }
+            
+            console.log(`Storage service initialized with ${this._tracks.length} tracks`);
+        } catch (error) {
+            console.error('Error initializing storage service internal data:', error);
+            // Initialize with empty arrays as fallback
+            this._tracks = [];
+            this._approvedTracks = [];
+            this._pendingTracks = [];
+        }
     }
     
     // Show a notification to remind users about token setup
@@ -26,6 +94,9 @@ class StorageService {
                 'warning',
                 8000
             );
+        } else {
+            console.warn('GitHub token required for full functionality');
+            alert('GitHub Token Required: Please configure a GitHub token in settings for full functionality.');
         }
     }
     

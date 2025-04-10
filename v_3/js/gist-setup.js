@@ -868,6 +868,61 @@
         checkStorageServiceAvailability();
     });
     
+    // Listen for the storage-service-ready event
+    window.addEventListener('storage-service-ready', function(event) {
+        console.log('Received storage-service-ready event');
+        
+        // If we have a storage service and it's not fully initialized yet, initialize it
+        if (window.storageService && !window.storageService._initialized) {
+            console.log('Storage service detected from event, initializing...');
+            initializeWithStorageService();
+        }
+        
+        // Show status in UI if Gist setup panel is visible
+        const setupContainer = document.querySelector('.gist-setup-container');
+        if (setupContainer && !setupContainer.classList.contains('hidden')) {
+            const statusElement = document.querySelector('.gist-id-status');
+            if (statusElement) {
+                const hasGistId = event.detail.hasGistId;
+                statusElement.className = hasGistId ? 'gist-id-status valid' : 'gist-id-status';
+                statusElement.textContent = hasGistId 
+                    ? 'Gist ID configured and storage service connected' 
+                    : 'Storage service connected, please configure a Gist ID';
+            }
+        }
+    });
+    
+    // Add event listener for when upload handler is ready
+    window.addEventListener('upload-handler-ready', function(event) {
+        // Get the upload handler from the event
+        const uploadHandler = event.detail.handler;
+        
+        // Connect storage service refresh callback to upload handler if both exist
+        if (window.storageService && uploadHandler) {
+            console.log('Connecting storage service to upload handler');
+            
+            // Set refresh callback on storage service if the method exists
+            if (typeof window.storageService.setRefreshCallback === 'function') {
+                window.storageService.setRefreshCallback(function() {
+                    // Call force refresh on upload handler
+                    return uploadHandler.forceRefresh();
+                });
+            } else {
+                // Fallback to direct property assignment
+                window.storageService.forceRefreshAfterSync = function() {
+                    return uploadHandler.forceRefresh();
+                };
+            }
+            
+            // Make sure the Force Refresh button is added to the UI
+            if (typeof uploadHandler.addForceRefreshButton === 'function') {
+                uploadHandler.addForceRefreshButton();
+            }
+        } else {
+            console.warn('Either storage service or upload handler is not available for connection');
+        }
+    });
+    
     // Function to check for storage service availability
     function checkStorageServiceAvailability() {
         // If we already have the storageService, use it immediately
@@ -879,8 +934,62 @@
         
         // Otherwise, set up a retry mechanism
         let retryCount = 0;
-        const maxRetries = 5;
-        const retryInterval = 1000; // 1 second interval
+        const maxRetries = 10; // Increased from 5 to give more time
+        const retryInterval = 800; // Reduced to make checks quicker
+        
+        console.log('Storage service not immediately available, will retry...');
+        
+        // Create fallback storage service if it doesn't exist after some retries
+        const createFallbackStorageService = () => {
+            console.log('Creating fallback storage service');
+            // Simple fallback storage service with essential methods
+            window.storageService = {
+                GIST_ID: localStorage.getItem('gistId') || null,
+                GITHUB_TOKEN: localStorage.getItem('githubToken') || null,
+                hasValidGistSettings: localStorage.getItem('gistId') && localStorage.getItem('githubToken'),
+                
+                setGistId: function(gistId) {
+                    this.GIST_ID = gistId;
+                    localStorage.setItem('gistId', gistId);
+                    console.log('Gist ID set in fallback storage service:', gistId);
+                },
+                
+                setGitHubToken: function(token) {
+                    this.GITHUB_TOKEN = token;
+                    localStorage.setItem('githubToken', token);
+                    console.log('GitHub token set in fallback storage service');
+                },
+                
+                syncFromGistToLocal: async function() {
+                    console.warn('Using fallback syncFromGistToLocal - limited functionality');
+                    return false;
+                },
+                
+                testConnection: async function() {
+                    console.warn('Using fallback testConnection - limited functionality');
+                    return false;
+                },
+                
+                forceRefreshAfterSync: function() {
+                    console.warn('Using fallback forceRefreshAfterSync - limited functionality');
+                    if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
+                        window.uploadHandler.forceRefresh();
+                        return true;
+                    }
+                    return false;
+                }
+            };
+            
+            // Show notification about limited functionality
+            const statusElement = document.querySelector('.gist-id-status');
+            if (statusElement) {
+                statusElement.textContent = 'Limited storage functionality available';
+                statusElement.style.color = '#ff9800'; // Warning color
+            }
+            
+            // Initialize with our fallback
+            initializeWithStorageService();
+        };
         
         const checkInterval = setInterval(() => {
             retryCount++;
@@ -892,10 +1001,45 @@
                 return;
             }
             
+            // After half the retries, try to load the storage service script dynamically
+            if (retryCount === Math.floor(maxRetries / 2)) {
+                console.log('Attempting to load storage-service.js dynamically');
+                const script = document.createElement('script');
+                script.src = 'js/storage-service.js';
+                script.onload = () => console.log('storage-service.js loaded dynamically');
+                script.onerror = () => console.error('Failed to load storage-service.js dynamically');
+                document.head.appendChild(script);
+            }
+            
             if (retryCount >= maxRetries) {
                 console.error(`Storage service not found after ${maxRetries} retries`);
                 clearInterval(checkInterval);
-                updateGistStatus(false, 'Storage service not available. Please refresh the page and try again.');
+                
+                // Create a fallback storage service with basic functionality
+                createFallbackStorageService();
+                
+                const errorMsg = 'Storage service not fully available. Limited functionality.';
+                console.warn(errorMsg);
+                
+                // Update UI to show the status
+                const statusElement = document.querySelector('.gist-id-status');
+                if (statusElement && !document.querySelector('.gist-setup-container.hidden')) {
+                    statusElement.className = 'gist-id-status invalid';
+                    statusElement.textContent = errorMsg;
+                }
+                
+                // Show detailed error information
+                showErrorDetailsHTML(`
+                    <strong>Storage Service Limited</strong>
+                    <p>The GitHub Gist storage service is not fully available. This might be due to:</p>
+                    <ul>
+                        <li>Script loading issues</li>
+                        <li>Initialization errors</li>
+                        <li>Incorrect file order</li>
+                    </ul>
+                    <p>You can still use basic functionality, but GitHub Gist synchronization may be limited.</p>
+                    <p>Try refreshing the page or check the browser console for errors.</p>
+                `);
             } else {
                 console.log(`Waiting for storage service... Retry ${retryCount}/${maxRetries}`);
                 // Show this status only if user has opened the panel
@@ -908,50 +1052,82 @@
     
     // Initialize with storage service when available
     function initializeWithStorageService() {
-        // If we have a saved Gist ID, use it to update the storage service
-        if (savedGistId) {
-            window.storageService.GIST_ID = savedGistId;
-            console.log('Loaded Gist ID from local storage:', savedGistId);
-            
-            // Also set token if available
-            if (savedGithubToken) {
-                window.storageService.GITHUB_TOKEN = savedGithubToken;
-                console.log('Loaded GitHub token from local storage (token value hidden for security)');
+        try {
+            // Check if storage service has necessary methods
+            const hasValidMethods = window.storageService && 
+                typeof window.storageService.setGistId === 'function' &&
+                typeof window.storageService.setGitHubToken === 'function';
+                
+            if (!hasValidMethods) {
+                console.warn('Storage service found but missing required methods');
+                showErrorDetails('Storage service is limited. Some functionalities may not work properly.');
             }
             
-            // Make upload handler available to the storage service
-            window.storageService.forceRefreshAfterSync = function() {
-                if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
-                    console.log('Force refreshing player after Gist sync');
-                    window.uploadHandler.forceRefresh();
-                    return true;
+            // If we have a saved Gist ID, use it to update the storage service
+            if (savedGistId) {
+                if (typeof window.storageService.setGistId === 'function') {
+                    window.storageService.setGistId(savedGistId);
                 } else {
-                    console.warn('Upload handler or forceRefresh method not available');
-                    return false;
+                    window.storageService.GIST_ID = savedGistId;
                 }
-            };
-            
-            updateGistStatus(true, 'Gist ID configured from local storage');
+                console.log('Loaded Gist ID from local storage:', savedGistId);
+                
+                // Also set token if available
+                if (savedGithubToken) {
+                    if (typeof window.storageService.setGitHubToken === 'function') {
+                        window.storageService.setGitHubToken(savedGithubToken);
+                    } else {
+                        window.storageService.GITHUB_TOKEN = savedGithubToken;
+                    }
+                    console.log('Loaded GitHub token from local storage (token value hidden for security)');
+                }
+                
+                // Set up refresh connection if possible
+                if (typeof window.storageService.setRefreshCallback === 'function') {
+                    window.storageService.setRefreshCallback(function() {
+                        if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
+                            console.log('Force refreshing player after Gist sync');
+                            window.uploadHandler.forceRefresh();
+                            return true;
+                        } else {
+                            console.warn('Upload handler or forceRefresh method not available');
+                            return false;
+                        }
+                    });
+                } else {
+                    // Fallback to basic method assignment
+                    window.storageService.forceRefreshAfterSync = function() {
+                        if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
+                            console.log('Force refreshing player after Gist sync');
+                            window.uploadHandler.forceRefresh();
+                            return true;
+                        } else {
+                            console.warn('Upload handler or forceRefresh method not available');
+                            return false;
+                        }
+                    };
+                }
+                
+                updateGistStatus(true, 'Gist ID configured from local storage');
+                
+                // If we now have a fully operational storage service, test the connection
+                if (typeof window.storageService.testConnection === 'function') {
+                    // Test but don't wait for it, to avoid blocking the UI
+                    window.storageService.testConnection().then(isConnected => {
+                        if (isConnected) {
+                            updateGistStatus(true, 'Connection to GitHub successful');
+                        }
+                    }).catch(error => {
+                        console.warn('Connection test failed:', error);
+                    });
+                }
+            } else {
+                console.log('No saved Gist ID found');
+                updateGistStatus(false, 'No Gist ID configured. Please enter a Gist ID to get started.');
+            }
+        } catch (error) {
+            console.error('Error initializing with storage service:', error);
+            showErrorDetails('Error initializing storage service: ' + error.message);
         }
     }
-    
-    // Add event listener for when upload handler is ready
-    window.addEventListener('upload-handler-ready', function(event) {
-        // Get the upload handler from the event
-        const uploadHandler = event.detail.handler;
-        
-        // Connect storage service refresh callback to upload handler if both exist
-        if (window.storageService && uploadHandler) {
-            console.log('Connecting storage service to upload handler');
-            
-            // Set refresh callback on storage service
-            window.storageService.setRefreshCallback(function() {
-                // Call force refresh on upload handler
-                uploadHandler.forceRefresh();
-            });
-            
-            // Make sure the Force Refresh button is added to the UI
-            uploadHandler.addForceRefreshButton();
-        }
-    });
 })(); 
