@@ -83,6 +83,9 @@ function initUploadPage() {
     // Load data from localStorage
     loadData();
     
+    // Cleanup any problematic track filenames in approved tracks
+    cleanupTrackFilenames();
+    
     // Render the tracks
     renderPendingTracks();
     renderApprovedTracks();
@@ -92,6 +95,43 @@ function initUploadPage() {
     
     // Add batch copy button to instructions
     addBatchCopyButton();
+}
+
+// Function to clean up track filenames for existing approved tracks
+function cleanupTrackFilenames() {
+    let hasChanges = false;
+    
+    // Loop through approved tracks and clean up their filenames
+    if (approvedTracks && approvedTracks.length > 0) {
+        approvedTracks.forEach(track => {
+            if (track.src && track.src.includes('_Unknown_Artist_')) {
+                console.log(`Cleaning up problematic track filename: ${track.src}`);
+                
+                // Extract the base title from the src
+                const srcParts = track.src.split('/');
+                const filename = srcParts[srcParts.length - 1];
+                
+                // Get the clean title before any _Unknown_Artist_ part
+                const cleanTitle = filename.split('_Unknown_Artist_')[0];
+                
+                // Create a clean src path
+                const cleanSrc = `assets/tracks/${cleanTitle}.mp3`;
+                
+                // Update the track
+                track.src = cleanSrc;
+                track.uniqueFileName = `${cleanTitle}.mp3`;
+                console.log(`Updated track src to: ${track.src}`);
+                
+                hasChanges = true;
+            }
+        });
+        
+        // Save changes if any were made
+        if (hasChanges) {
+            console.log("Saving cleaned up track filenames");
+            saveData();
+        }
+    }
 }
 
 // Set up event listeners
@@ -738,10 +778,10 @@ function approveTrack() {
     
     const track = pendingTracks[selectedTrackIndex];
     
-    // Create a unique filename based on title and artist
+    // Create a cleaner filename based only on title
     const cleanTitle = track.title.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_');
-    const cleanArtist = track.artist.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_');
-    const uniqueFileName = `${cleanTitle}_${cleanArtist}_${Date.now()}.mp3`;
+    // Remove the artist and timestamp from the filename for cleaner URLs
+    const uniqueFileName = `${cleanTitle}.mp3`;
     
     // Create a track object for the approved list
     const approvedTrack = {

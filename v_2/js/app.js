@@ -144,6 +144,9 @@ async function loadUploadedTracks() {
             return;
         }
         
+        // First clean up any problematic src paths
+        tracks = cleanupTrackSrcPaths(tracks);
+        
         // Validate each track
         const validatedTracks = tracks.filter(track => {
             const isValid = track && 
@@ -165,6 +168,37 @@ async function loadUploadedTracks() {
         } else {
             console.error('No valid tracks found in loaded data');
         }
+    }
+    
+    // Function to clean up track src paths with problematic formats
+    function cleanupTrackSrcPaths(tracks) {
+        if (!tracks || !Array.isArray(tracks)) return tracks;
+        
+        return tracks.map(track => {
+            // Clone the track to avoid modifying the original
+            const cleanTrack = {...track};
+            
+            // Check if the src has the problematic pattern
+            if (cleanTrack.src && cleanTrack.src.includes('_Unknown_Artist_')) {
+                console.log(`Cleaning up problematic track src: ${cleanTrack.src}`);
+                
+                // Extract the base name and directory
+                const srcParts = cleanTrack.src.split('/');
+                const fileName = srcParts[srcParts.length - 1];
+                
+                // Get the base directory (everything before the filename)
+                const baseDir = srcParts.slice(0, -1).join('/');
+                
+                // Get the title part before _Unknown_Artist_
+                const titlePart = fileName.split('_Unknown_Artist_')[0];
+                
+                // Create clean src path
+                cleanTrack.src = `${baseDir}/${titlePart}.mp3`;
+                console.log(`Updated track src to: ${cleanTrack.src}`);
+            }
+            
+            return cleanTrack;
+        });
     }
 }
 
@@ -461,6 +495,9 @@ function setAudioSource(track) {
     if (!track) return false;
     
     try {
+        // Log the track information for debugging
+        console.log(`Setting audio source for track: "${track.title}" with src: ${track.src}`);
+        
         if (track.usingFallback && track.embeddedAudio) {
             // Use embedded audio as fallback
             audio.src = track.embeddedAudio;
@@ -477,6 +514,19 @@ function setAudioSource(track) {
             console.log(`Using file path for track "${track.title}": ${track.filePath}`);
             return true;
         } else if (track.src) {
+            // Check if the src contains any potential issues
+            if (track.src.includes('_Unknown_Artist_')) {
+                // Fix the src path on the fly
+                const srcParts = track.src.split('/');
+                const fileName = srcParts[srcParts.length - 1];
+                const baseDir = srcParts.slice(0, -1).join('/');
+                const titlePart = fileName.split('_Unknown_Artist_')[0];
+                
+                // Update the track's src to the fixed version
+                track.src = `${baseDir}/${titlePart}.mp3`;
+                console.log(`Fixed track src path on the fly to: ${track.src}`);
+            }
+            
             // Use the src property
             audio.src = track.src;
             console.log(`Using src for track "${track.title}": ${track.src}`);
