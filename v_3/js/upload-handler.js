@@ -46,18 +46,85 @@ class UploadHandler {
             return;
         }
 
-        // Process the first file
-        this.currentUploadFile = files[0];
-        if (!this.currentUploadFile.type.startsWith('audio/')) {
-            showNotification(`${this.currentUploadFile.name} is not an audio file`, 'error');
-            return;
+        // Show upload progress container
+        this.createProgressBar();
+        
+        // Process each file with progress
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            
+            if (!file.type.startsWith('audio/')) {
+                showNotification(`${file.name} is not an audio file`, 'error');
+                continue;
+            }
+            
+            this.currentUploadFile = file;
+            this.updateProgressBar(0, `Preparing ${file.name} (${i+1}/${files.length})...`);
+            
+            // Show tag selection dialog after short delay to show progress
+            setTimeout(() => {
+                this.showTagSelectionDialog(file);
+            }, 500);
+            
+            // Wait for this file to be processed before moving to next
+            await new Promise(resolve => {
+                const checkInterval = setInterval(() => {
+                    if (this.currentUploadFile !== file) {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 500);
+            });
         }
-
-        // Show tag selection dialog
-        this.showTagSelectionDialog(this.currentUploadFile);
+    }
+    
+    createProgressBar() {
+        // Check if progress bar already exists
+        let progressContainer = document.getElementById('upload-progress-container');
+        if (!progressContainer) {
+            // Create progress container
+            progressContainer = document.createElement('div');
+            progressContainer.id = 'upload-progress-container';
+            progressContainer.className = 'upload-progress-container';
+            progressContainer.innerHTML = `
+                <div class="upload-progress-info">Preparing upload...</div>
+                <div class="upload-progress">
+                    <div class="upload-progress-bar" id="upload-progress-bar"></div>
+                </div>
+            `;
+            
+            // Add to body
+            document.querySelector('.player-container').appendChild(progressContainer);
+        } else {
+            // Just show it if it exists
+            progressContainer.style.display = 'block';
+        }
+        
+        // Show the progress elements
+        document.querySelector('.upload-progress').style.display = 'block';
+    }
+    
+    updateProgressBar(percent, message) {
+        const progressBar = document.getElementById('upload-progress-bar');
+        const progressInfo = document.querySelector('.upload-progress-info');
+        
+        if (progressBar && progressInfo) {
+            progressBar.style.width = `${percent}%`;
+            progressInfo.textContent = message || 'Processing...';
+        }
+    }
+    
+    hideProgressBar() {
+        const progressContainer = document.getElementById('upload-progress-container');
+        if (progressContainer) {
+            progressContainer.style.display = 'none';
+        }
     }
 
     showTagSelectionDialog(file) {
+        // Update progress
+        this.updateProgressBar(30, `Processing ${file.name}...`);
+        
         // Create dialog container
         const dialog = document.createElement('div');
         dialog.className = 'upload-dialog';
@@ -128,12 +195,17 @@ class UploadHandler {
             </div>
         `;
 
+        // Update progress
+        this.updateProgressBar(60, `Ready to add details for ${file.name}`);
+        
         // Add dialog to the document
         document.body.appendChild(dialog);
 
         // Add event listeners
         document.getElementById('cancel-upload-btn').addEventListener('click', () => {
             document.body.removeChild(dialog);
+            this.currentUploadFile = null;
+            this.hideProgressBar();
         });
 
         document.getElementById('save-track-btn').addEventListener('click', () => {
@@ -145,6 +217,9 @@ class UploadHandler {
     }
 
     processTrackWithTags(file, dialog) {
+        // Update progress
+        this.updateProgressBar(80, `Saving track information...`);
+        
         // Get form values
         const title = document.getElementById('track-title').value || file.name.replace('.mp3', '');
         const artist = document.getElementById('track-artist').value || 'TildeSoundArt';
@@ -184,6 +259,9 @@ class UploadHandler {
         // Remove dialog
         document.body.removeChild(dialog);
 
+        // Update progress
+        this.updateProgressBar(90, `Finalizing upload...`);
+        
         // Update the tracks.json content
         const trackLogContent = JSON.stringify(this.tracksData, null, 2);
         
@@ -193,6 +271,9 @@ class UploadHandler {
         const downloadLink = document.createElement('a');
         downloadLink.href = downloadUrl;
         downloadLink.download = 'tracks.json';
+        
+        // Update progress
+        this.updateProgressBar(100, `Upload complete!`);
         
         // Show notification with instructions
         showNotification(`
@@ -214,6 +295,14 @@ class UploadHandler {
         }
 
         showNotification(`Successfully processed ${file.name}`, 'success');
+        
+        // Clear current file
+        this.currentUploadFile = null;
+        
+        // Hide progress bar after delay
+        setTimeout(() => {
+            this.hideProgressBar();
+        }, 2000);
     }
     
     // Edit existing track metadata
@@ -314,11 +403,16 @@ class UploadHandler {
     }
     
     updateTrack(trackId, dialog) {
+        // Create progress indicator
+        this.createProgressBar();
+        this.updateProgressBar(30, "Updating track information...");
+        
         // Find track in data
         const trackIndex = this.tracksData.tracks.findIndex(t => t.id === trackId);
         if (trackIndex === -1) {
             showNotification('Track not found', 'error');
             document.body.removeChild(dialog);
+            this.hideProgressBar();
             return;
         }
         
@@ -340,6 +434,9 @@ class UploadHandler {
         
         // Get selected duration
         const selectedDuration = document.querySelector('input[name="edit-duration"]:checked')?.value || 'medium';
+        
+        // Update progress
+        this.updateProgressBar(60, "Saving changes...");
         
         // Update track data
         this.tracksData.tracks[trackIndex] = {
@@ -367,6 +464,9 @@ class UploadHandler {
         downloadLink.href = downloadUrl;
         downloadLink.download = 'tracks.json';
         
+        // Update progress
+        this.updateProgressBar(90, "Finalizing changes...");
+        
         // Show notification with instructions
         showNotification(`
             Track "${this.tracksData.tracks[trackIndex].title}" has been updated. To save changes:
@@ -378,6 +478,9 @@ class UploadHandler {
         // Trigger download
         downloadLink.click();
         
+        // Update progress
+        this.updateProgressBar(100, "Update complete!");
+        
         // Update local tracksData and UI
         const localTrackIndex = tracksData.findIndex(t => t.id === trackId);
         if (localTrackIndex !== -1) {
@@ -387,6 +490,11 @@ class UploadHandler {
         }
 
         showNotification(`Successfully updated track "${title}"`, 'success');
+        
+        // Hide progress bar after delay
+        setTimeout(() => {
+            this.hideProgressBar();
+        }, 2000);
     }
 
     // Get formatted track list for export
