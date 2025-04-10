@@ -2513,6 +2513,39 @@ function setupEventListeners() {
         nextBtn.addEventListener('click', playNextTrack);
     }
     
+    // Add listener for the force refresh button
+    const forceRefreshBtn = document.getElementById('force-refresh-button');
+    if (forceRefreshBtn) {
+        forceRefreshBtn.addEventListener('click', function() {
+            console.log('Force refresh button clicked');
+            if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
+                window.uploadHandler.forceRefresh();
+            } else {
+                console.warn('Upload handler or forceRefresh method not available');
+                showNotification('Refresh function not available', 'error');
+            }
+        });
+    }
+    
+    // Add listener for the Gist settings button
+    const gistSettingsBtn = document.getElementById('gist-settings-btn');
+    if (gistSettingsBtn) {
+        gistSettingsBtn.addEventListener('click', function() {
+            console.log('Gist settings button clicked');
+            // Find and show the Gist setup container
+            const gistSetupContainer = document.querySelector('.gist-setup-container');
+            if (gistSetupContainer) {
+                gistSetupContainer.classList.remove('hidden');
+            } else {
+                console.warn('Gist setup container not found');
+                showNotification('Gist setup UI not available', 'error');
+            }
+        });
+    }
+    
+    // Add event listeners to track items
+    tracksContainer.addEventListener('click', handleTrackClick);
+    
     // Volume slider
     if (volumeSlider) {
         volumeSlider.addEventListener('input', updateVolume);

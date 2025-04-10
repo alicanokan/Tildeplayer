@@ -1173,6 +1173,14 @@ class UploadHandler {
                         
                         // After syncing, load tracks from local storage and update UI
                         this._refreshFromLocalStorage();
+                        
+                        // Ensure the track list is immediately re-rendered
+                        if (typeof window.renderTrackList === 'function') {
+                            setTimeout(() => {
+                                window.renderTrackList();
+                                console.log('Explicitly re-rendered track list after sync');
+                            }, 500); // Small delay to ensure data has been processed
+                        }
                     } else {
                         console.warn('Failed to sync from Gist, falling back to direct fetch');
                         // Fallback to direct fetch from server
@@ -1331,6 +1339,14 @@ class UploadHandler {
                         if (typeof renderTrackList === 'function') {
                             renderTrackList();
                             console.log('Re-rendered track list');
+                            
+                            // Add another render after a delay to ensure UI is updated
+                            setTimeout(() => {
+                                if (typeof renderTrackList === 'function') {
+                                    renderTrackList();
+                                    console.log('Re-rendered track list again after delay');
+                                }
+                            }, 1000);
                         }
                     }
                 }
@@ -1492,47 +1508,54 @@ const uploadHandler = new UploadHandler();
 
 // Add drag and drop support
 document.addEventListener('DOMContentLoaded', () => {
-    const dropZone = document.createElement('div');
-    dropZone.id = 'upload-drop-zone';
-    dropZone.className = 'upload-drop-zone';
-    dropZone.innerHTML = `
-        <div class="upload-icon">
-            <i class="fas fa-cloud-upload-alt"></i>
-        </div>
-        <p>Drag and drop audio files here or click to upload</p>
-        <input type="file" id="file-input" accept="audio/*" multiple style="display: none">
-    `;
+    // Check if we're on the upload page - only show upload interface there
+    const isUploadPage = window.location.pathname.includes('upload.html');
+    
+    // Only add drop zone on the upload page, not on the main index page
+    if (isUploadPage) {
+        const dropZone = document.createElement('div');
+        dropZone.id = 'upload-drop-zone';
+        dropZone.className = 'upload-drop-zone';
+        dropZone.innerHTML = `
+            <div class="upload-icon">
+                <i class="fas fa-cloud-upload-alt"></i>
+            </div>
+            <p>Drag and drop audio files here or click to upload</p>
+            <input type="file" id="file-input" accept="audio/*" multiple style="display: none">
+        `;
 
-    document.querySelector('.player-container').appendChild(dropZone);
+        document.querySelector('.player-container').appendChild(dropZone);
 
-    const fileInput = dropZone.querySelector('#file-input');
+        const fileInput = dropZone.querySelector('#file-input');
 
-    // Handle drag and drop events
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('dragover');
-    });
+        // Handle drag and drop events
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
 
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('dragover');
-    });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
 
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        const files = e.dataTransfer.files;
-        uploadHandler.handleFileUpload(files);
-    });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            uploadHandler.handleFileUpload(files);
+        });
 
-    // Handle click to upload
-    dropZone.addEventListener('click', () => {
-        fileInput.click();
-    });
+        // Handle click to upload
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
 
-    fileInput.addEventListener('change', (e) => {
-        uploadHandler.handleFileUpload(e.target.files);
-    });
+        fileInput.addEventListener('change', (e) => {
+            uploadHandler.handleFileUpload(e.target.files);
+        });
+    }
 
+    // These event listeners are always active regardless of page
     // Add edit button to each track
     document.addEventListener('click', (e) => {
         if (e.target.classList.contains('edit-track-btn') || 
