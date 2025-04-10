@@ -26,156 +26,12 @@ let tracksData = [];
 // A filtered subset of tracks based on user filters
 let filteredTracks = [];
 
-// Functions to manage the known files list
-function loadKnownFiles() {
-    try {
-        // First try to load from knownfiles.json in the assets directory
-        return fetch('assets/tracks/knownfiles.json')
-            .then(response => {
-                if (response.ok) {
-                    return response.json();
-                } else {
-                    throw new Error('Could not load knownfiles.json');
-                }
-            })
-            .then(data => {
-                console.log('Loaded known files from knownfiles.json:', data.length);
-                return data;
-            })
-            .catch(error => {
-                console.log('Could not load from knownfiles.json, trying localStorage:', error);
-                
-                // Fall back to localStorage if the file isn't available
-                const storedFiles = localStorage.getItem('knownFiles');
-                if (storedFiles) {
-                    return JSON.parse(storedFiles);
-                } else {
-                    throw new Error('No known files in localStorage');
-                }
-            })
-            .catch(e => {
-                console.error('Error loading known files from all sources:', e);
-                // Return default list if all else fails
-                return getDefaultKnownFiles();
-            });
-    } catch (e) {
-        console.error('Error in loadKnownFiles:', e);
-        return getDefaultKnownFiles();
-    }
-}
+// Add this near the top of the file, before any other code that uses tracksData or filteredTracks
+// Global variables for tracks
+window.tracksData = window.tracksData || [];
+window.filteredTracks = window.filteredTracks || [...window.tracksData];
 
-// Function to get the default known files list
-function getDefaultKnownFiles() {
-    return [
-        { index: 1, filename: "ID Music 1 - (TOGG_ID MEDIA _padfuturebass 2).mp3" },
-        { index: 2, filename: "ID Music 2 - (17c-Technology_F1).mp3" },
-        { index: 3, filename: "ID Music 3 - (14. TOGG_ID MEDIA _Piano3).mp3" },
-        { index: 4, filename: "ID Music 4 - (9c-Lofi_F1).mp3" },
-        { index: 5, filename: "ID Music 5 - (16c-StompRock_F1).mp3" },
-        { index: 6, filename: "ID Music 6 - (ID_SYNTHPOP_60) 1.mp3" },
-        { index: 7, filename: "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3" },
-        { index: 8, filename: "ID Music 8 - (1c-Corporate_F1).mp3" },
-        { index: 9, filename: "ID Music 9 - (5c-Optimistic_F1).mp3" },
-        { index: 10, filename: "ID Music 10 - (ID_FUTURISTIC_SPACEY) 1.mp3" },
-        { index: 11, filename: "ID Music 11 - (10c-Logo Synth_Ney_F1).mp3" },
-        { index: 12, filename: "ID Music 12 - (2c-Future Bass_F1).mp3" },
-        { index: 13, filename: "ID Music 13 - (Rock1).mp3" },
-        { index: 14, filename: "ID Music 14 - (Synthwave_1).mp3" },
-        { index: 15, filename: "ID Music 15 - (Corp.Hiphop1).mp3" },
-        { index: 16, filename: "ID Music 16 - (Corp.Hiphop2).mp3" }
-    ];
-}
-
-function saveKnownFiles(knownFiles) {
-    try {
-        // Save to localStorage
-        localStorage.setItem('knownFiles', JSON.stringify(knownFiles));
-        console.log('Saved updated known files list to localStorage');
-        
-        // Also create a downloadable JSON file that can be committed to GitHub
-        exportKnownFilesToJSON(knownFiles);
-        
-        return true;
-    } catch (e) {
-        console.error('Error saving known files to localStorage:', e);
-        return false;
-    }
-}
-
-// Function to export known files to a downloadable JSON file
-function exportKnownFilesToJSON(knownFiles) {
-    const jsonContent = JSON.stringify(knownFiles, null, 2);
-    const blob = new Blob([jsonContent], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    
-    const downloadLink = document.createElement('a');
-    downloadLink.href = url;
-    downloadLink.download = 'knownfiles.json';
-    
-    // Show notification with instructions
-    showNotification(`
-        Known files list has been updated. To save for future sessions:
-        1. The knownfiles.json file will download automatically
-        2. Place this file in your assets/tracks directory in your GitHub repository
-        3. Commit and push the changes to GitHub
-    `, 'info', 10000);
-    
-    // Trigger download
-    downloadLink.click();
-    
-    // Clean up
-    URL.revokeObjectURL(url);
-}
-
-// Add a new file to the known files list
-function addKnownFile(filename) {
-    // Load known files first (this is now async)
-    loadKnownFiles().then(knownFiles => {
-        // Find the highest index currently in use
-        const highestIndex = knownFiles.reduce((max, file) => 
-            file.index > max ? file.index : max, 0);
-        
-        // Only add if the file doesn't already exist
-        if (!knownFiles.some(file => file.filename === filename)) {
-            // Create a new entry with the next index
-            const newFile = {
-                index: highestIndex + 1,
-                filename: filename
-            };
-            
-            // Add to the list
-            knownFiles.push(newFile);
-            
-            // Save the updated list
-            saveKnownFiles(knownFiles);
-            console.log(`Added new file to known files list: ${filename} with index ${newFile.index}`);
-            return true;
-        }
-        
-        return false;
-    }).catch(error => {
-        console.error('Error in addKnownFile:', error);
-        return false;
-    });
-}
-
-// Make the addKnownFile function globally accessible
-window.addKnownFile = addKnownFile;
-
-// Function to export all known files (can be called from a button)
-function exportAllKnownFiles() {
-    loadKnownFiles().then(knownFiles => {
-        exportKnownFilesToJSON(knownFiles);
-    }).catch(error => {
-        console.error('Error exporting known files:', error);
-        showNotification('Error exporting known files. See console for details.', 'error');
-    });
-}
-
-// Make this function globally accessible
-window.exportAllKnownFiles = exportAllKnownFiles;
-
-// Sample tracks to use as a fallback if no tracks are found
+// Initialize sample tracks
 const sampleTracks = [
     {
         id: 1,
@@ -2264,19 +2120,70 @@ function updatePlayPauseState(playing) {
  * Render the list of tracks in the track catalog
  */
 function renderTrackList() {
+    // Make function globally available
+    window.renderTrackList = renderTrackList;
+    
+    // Reference global variables
+    const tracksData = window.tracksData || [];
+    let filteredTracks = window.filteredTracks || [];
+    
+    // Get the tracks container
+    const tracksContainer = document.getElementById('tracks-container');
+    
     if (!tracksContainer) {
-        console.error('Track container not found');
+        console.error('Track container not found (element with ID "tracks-container")');
         return;
     }
     
-    console.log('Rendering track list with', tracksData.length, 'tracks');
+    console.log(`Rendering track list with ${tracksData.length} total tracks and ${filteredTracks.length} filtered tracks`);
+    
+    // Debug info about the global tracksData and filteredTracks
+    console.log(`Global tracksData: ${window.tracksData ? window.tracksData.length : 'undefined'} tracks`);
+    console.log(`Global filteredTracks: ${window.filteredTracks ? window.filteredTracks.length : 'undefined'} tracks`);
     
     // Clear any existing tracks
     tracksContainer.innerHTML = '';
     
     // Set filteredTracks to all tracks initially if it's empty
-    if (filteredTracks.length === 0) {
+    if (filteredTracks.length === 0 && tracksData.length > 0) {
+        console.log('filteredTracks is empty, using all tracks');
         filteredTracks = [...tracksData];
+        window.filteredTracks = filteredTracks; // Update global
+    }
+    
+    // If we still don't have tracks to display, show a message
+    if (filteredTracks.length === 0) {
+        console.warn('No tracks to display');
+        tracksContainer.innerHTML = `
+            <div class="no-tracks-message">
+                <p>No tracks available to display.</p>
+                <p>Try refreshing or adding some tracks.</p>
+                <button id="force-refresh-btn" class="primary-button">Force Refresh</button>
+            </div>
+        `;
+        
+        // Add event listener to force refresh button
+        const forceRefreshBtn = document.getElementById('force-refresh-btn');
+        if (forceRefreshBtn) {
+            forceRefreshBtn.addEventListener('click', () => {
+                // Try to use uploadHandler if available
+                if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
+                    console.log('Forcing refresh using uploadHandler.forceRefresh()');
+                    window.uploadHandler.forceRefresh();
+                } else if (window.storageService && typeof window.storageService.syncFromGistToLocal === 'function') {
+                    console.log('Forcing refresh using storageService.syncFromGistToLocal()');
+                    window.storageService.syncFromGistToLocal().then(() => {
+                        // Reload the page to ensure everything is fresh
+                        window.location.reload();
+                    });
+                } else {
+                    console.log('No refresh method available, reloading page');
+                    window.location.reload();
+                }
+            });
+        }
+        
+        return;
     }
     
     // Render each track

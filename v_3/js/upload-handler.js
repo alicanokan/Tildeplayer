@@ -1506,6 +1506,16 @@ class UploadHandler {
 // Initialize upload handler
 const uploadHandler = new UploadHandler();
 
+// Make upload handler globally available
+window.uploadHandler = uploadHandler;
+
+// Dispatch event to notify that upload handler is ready
+document.dispatchEvent(new CustomEvent('upload-handler-ready', {
+    detail: {
+        handler: uploadHandler
+    }
+}));
+
 // Add drag and drop support
 document.addEventListener('DOMContentLoaded', () => {
     // Check if we're on the upload page - only show upload interface there

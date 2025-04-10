@@ -833,10 +833,53 @@
             window.storageService.forceRefreshAfterSync = function() {
                 if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
                     console.log('Force refreshing player after Gist sync');
-                    window.uploadHandler.forceRefresh();
-                    return true;
+                    try {
+                        window.uploadHandler.forceRefresh();
+                        return true;
+                    } catch (error) {
+                        console.error('Error during force refresh:', error);
+                        return false;
+                    }
                 } else {
                     console.warn('Upload handler or forceRefresh method not available');
+                    
+                    // Try to reload the tracks data from localStorage directly
+                    if (localStorage.getItem('tracks')) {
+                        console.log('Attempting to reload tracks from localStorage directly');
+                        try {
+                            const tracksData = JSON.parse(localStorage.getItem('tracks'));
+                            if (Array.isArray(tracksData) && tracksData.length > 0) {
+                                console.log(`Found ${tracksData.length} tracks in localStorage, dispatching tracks-loaded event`);
+                                document.dispatchEvent(new CustomEvent('tracks-loaded', { 
+                                    detail: { tracks: tracksData } 
+                                }));
+                                
+                                // Update global variables if they exist
+                                if (typeof window.tracksData !== 'undefined') {
+                                    window.tracksData = [...tracksData];
+                                    if (typeof window.filteredTracks !== 'undefined') {
+                                        window.filteredTracks = [...tracksData];
+                                        if (typeof window.renderTrackList === 'function') {
+                                            window.renderTrackList();
+                                        }
+                                    }
+                                }
+                                return true;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing tracks from localStorage:', e);
+                        }
+                    }
+                    
+                    // Show notification suggesting page reload
+                    if (window.notificationService) {
+                        window.notificationService.show(
+                            'Track Refresh Issue',
+                            'Data synced, but track list could not be refreshed automatically. Consider reloading the page.',
+                            'warning',
+                            5000
+                        );
+                    }
                     return false;
                 }
             };

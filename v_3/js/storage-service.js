@@ -287,7 +287,34 @@ class StorageService {
         
         // Call the onReady callback if exists
         if (typeof this.forceRefreshAfterSync === 'function') {
-            this.forceRefreshAfterSync();
+            setTimeout(() => {
+                try {
+                    const refreshResult = this.forceRefreshAfterSync();
+                    if (!refreshResult) {
+                        console.warn('Force refresh after sync returned false - possible issue with refresh operation');
+                        // Fallback to simpler notification if refresh didn't work
+                        if (window.notificationService) {
+                            window.notificationService.show(
+                                'Sync Complete',
+                                'Data synced from Gist, but UI refresh may require a page reload.',
+                                'info',
+                                5000
+                            );
+                        }
+                    }
+                } catch (refreshError) {
+                    console.error('Error during force refresh after sync:', refreshError);
+                    // Notify user about refresh error
+                    if (window.notificationService) {
+                        window.notificationService.show(
+                            'Refresh Error',
+                            'Data synced from Gist, but UI refresh failed. You may need to reload the page.',
+                            'warning',
+                            5000
+                        );
+                    }
+                }
+            }, 500);
         }
         
         // Dispatch an event for components that need to know when storage is ready
