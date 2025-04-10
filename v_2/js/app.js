@@ -97,11 +97,12 @@ const embeddedAudioData = "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY2
 // Modify loadUploadedTracks to use storage service
 async function loadUploadedTracks() {
     console.log('Loading tracks from storage...');
+    let tracksLoaded = false;
     
     try {
         // Try loading from storage service first
         const tracks = await storageService.loadData('tracks');
-        console.log('Loaded tracks from storage service:', tracks);
+        console.log('Loaded tracks from storage service:', tracks ? tracks.length : 0);
         
         // If no tracks from storage service, try localStorage directly
         if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
@@ -112,17 +113,43 @@ async function loadUploadedTracks() {
                 if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
                     console.log('Found tracks in localStorage:', localStorageTracks.length);
                     processLoadedTracks(localStorageTracks);
+                    showNotification(`Loaded ${localStorageTracks.length} tracks from localStorage`);
+                    tracksLoaded = true;
                     return;
                 }
             } catch (localStorageError) {
                 console.error('Error parsing tracks from localStorage:', localStorageError);
             }
             
-            console.log('No tracks found in localStorage either, using sample tracks');
+            // If still no tracks, check if we're on GitHub Pages and need to sync from Gist
+            if (window.storageService && window.storageService.isRunningOnGitHub()) {
+                console.log('Attempting to sync from Gist...');
+                try {
+                    await window.storageService.syncFromGistToLocal();
+                    
+                    // Try loading tracks again after sync
+                    const syncedTracks = await storageService.loadData('tracks');
+                    if (syncedTracks && Array.isArray(syncedTracks) && syncedTracks.length > 0) {
+                        console.log('Found tracks after Gist sync:', syncedTracks.length);
+                        processLoadedTracks(syncedTracks);
+                        showNotification(`Loaded ${syncedTracks.length} tracks from Gist storage`);
+                        tracksLoaded = true;
+                        return;
+                    }
+                } catch (syncError) {
+                    console.error('Error syncing from Gist:', syncError);
+                }
+            }
+            
+            console.log('No tracks found in any storage, using sample tracks');
+            // Show notification that we're using sample tracks
+            showNotification('Using sample tracks - no uploaded tracks found');
             return; // Keep the default sample tracks
         }
         
         processLoadedTracks(tracks);
+        showNotification(`Loaded ${tracks.length} tracks from storage`);
+        tracksLoaded = true;
     } catch (error) {
         console.error('Error loading tracks:', error);
         // Try localStorage as fallback
@@ -131,9 +158,12 @@ async function loadUploadedTracks() {
             if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
                 console.log('Using localStorage fallback for tracks:', localStorageTracks.length);
                 processLoadedTracks(localStorageTracks);
+                showNotification(`Loaded ${localStorageTracks.length} tracks from localStorage (fallback)`);
+                tracksLoaded = true;
             }
         } catch (fallbackError) {
             console.error('Complete failure loading tracks, using sample tracks:', fallbackError);
+            showNotification('Error loading tracks, using sample tracks');
         }
     }
     
@@ -141,6 +171,7 @@ async function loadUploadedTracks() {
     function processLoadedTracks(tracks) {
         if (!tracks || !Array.isArray(tracks)) {
             console.log('No valid tracks array, using sample tracks');
+            showNotification('Invalid tracks data, using sample tracks');
             return;
         }
         
@@ -165,8 +196,12 @@ async function loadUploadedTracks() {
         if (validatedTracks.length > 0) {
             tracksData = validatedTracks;
             console.log('Successfully loaded', validatedTracks.length, 'valid tracks');
+            
+            // Save these tracks back to storage to ensure consistency
+            storageService.saveData('tracks', validatedTracks);
         } else {
             console.error('No valid tracks found in loaded data');
+            showNotification('No valid tracks found, using sample tracks');
         }
     }
     

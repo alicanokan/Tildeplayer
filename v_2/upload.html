@@ -134,6 +134,7 @@
                 <div class="action-buttons-container">
                     <button id="apply-to-player-btn" class="primary-btn" title="Save these tracks to the player and make them available in the main player page. This process may take some time for large audio files.">Apply Tracks to Player Page</button>
                     <button id="reload-from-player-btn" class="secondary-btn" title="Load tracks from the player page into the approved tracks list. Use this if your approved tracks list is empty but you have tracks in the player.">Reload from Player</button>
+                    <button id="reset-storage-btn" class="danger-btn" title="Clear all stored tracks and start fresh. Use this only if you're having persistent issues with tracks.">Reset Storage</button>
                 </div>
                 <p class="help-text">
                     <strong>Important:</strong> To make tracks play correctly on the player page, you need to:
@@ -142,6 +143,9 @@
                     <br>3. Save each file with its EXACT filename to the <code>assets/tracks</code> directory in your project folder
                     <br>4. Go to the player page to listen to your tracks
                 </p>
+                <div class="storage-notice">
+                    <p><i class="fas fa-info-circle"></i> <strong>Browser Storage Note:</strong> Track data is saved to browser storage. If you switch browsers or use private browsing, you won't see your tracks. Use "Reload from Player" to sync tracks when needed.</p>
+                </div>
             </div>
         </main>
         

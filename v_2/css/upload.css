@@ -876,4 +876,23 @@ nav a.active {
 
 .secondary-btn:active {
     background-color: #2c4a6e;
+}
+
+/* Storage notice */
+.storage-notice {
+    background-color: #fff3cd;
+    border: 1px solid #ffeeba;
+    border-radius: var(--border-radius);
+    padding: 10px 15px;
+    margin-top: 15px;
+    font-size: 0.85rem;
+    color: #856404;
+}
+
+.storage-notice p {
+    margin: 0;
+}
+
+.storage-notice i {
+    margin-right: 5px;
 } 

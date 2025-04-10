@@ -79,22 +79,57 @@ const api = {
 };
 
 // Initialize the upload page
-function initUploadPage() {
-    // Load data from localStorage
-    loadData();
+async function initUploadPage() {
+    console.log("Initializing upload page...");
     
-    // Cleanup any problematic track filenames in approved tracks
-    cleanupTrackFilenames();
-    
-    // Render the tracks
-    renderPendingTracks();
-    renderApprovedTracks();
-    
-    // Set up event listeners
-    setupEventListeners();
-    
-    // Add batch copy button to instructions
-    addBatchCopyButton();
+    try {
+        // First, explicitly sync data from all available sources
+        await storageService.syncAllData();
+        console.log("Storage sync complete");
+        
+        // Load data from storage (this will check all sources)
+        await loadData();
+        
+        // Check if we have approved tracks, and if not, check for player tracks
+        if (!approvedTracks || approvedTracks.length === 0) {
+            console.log("No approved tracks found. Checking player tracks...");
+            await reloadTracksFromPlayer(false); // Don't show alert
+        }
+        
+        // Cleanup any problematic track filenames in approved tracks
+        cleanupTrackFilenames();
+        
+        // Render the tracks
+        renderPendingTracks();
+        renderApprovedTracks();
+        
+        // Set up event listeners
+        setupEventListeners();
+        
+        // Add batch copy button to instructions
+        addBatchCopyButton();
+        
+        console.log("Upload page initialization complete");
+    } catch (error) {
+        console.error("Error initializing upload page:", error);
+        // Try to recover by loading from localStorage
+        pendingTracks = JSON.parse(localStorage.getItem('pendingTracks')) || [];
+        approvedTracks = JSON.parse(localStorage.getItem('approvedTracks')) || [];
+        
+        // As a last resort, try to get tracks directly
+        if (approvedTracks.length === 0) {
+            const tracks = JSON.parse(localStorage.getItem('tracks')) || [];
+            if (tracks.length > 0) {
+                approvedTracks = tracks;
+                console.log("Loaded tracks directly from localStorage as fallback");
+            }
+        }
+        
+        // Render whatever we have
+        renderPendingTracks();
+        renderApprovedTracks();
+        setupEventListeners();
+    }
 }
 
 // Function to clean up track filenames for existing approved tracks
@@ -173,7 +208,59 @@ function setupEventListeners() {
     // New: Reload from player button
     const reloadFromPlayerBtn = document.getElementById('reload-from-player-btn');
     if (reloadFromPlayerBtn) {
-        reloadFromPlayerBtn.addEventListener('click', reloadTracksFromPlayer);
+        reloadFromPlayerBtn.addEventListener('click', () => reloadTracksFromPlayer(true));
+    }
+    
+    // New: Reset storage button
+    const resetStorageBtn = document.getElementById('reset-storage-btn');
+    if (resetStorageBtn) {
+        resetStorageBtn.addEventListener('click', resetStorage);
+    }
+}
+
+// Function to reset all storage
+async function resetStorage() {
+    const confirmReset = confirm(
+        "WARNING: This will delete all your track data!\n\n" +
+        "This action cannot be undone. All your tracks data will be cleared from storage.\n\n" +
+        "Do you want to continue?"
+    );
+    
+    if (!confirmReset) {
+        return;
+    }
+    
+    try {
+        console.log("Clearing all track storage...");
+        
+        // Clear storage service data
+        await storageService.saveData('tracks', []);
+        await storageService.saveData('approvedTracks', []);
+        await storageService.saveData('pendingTracks', []);
+        
+        // Clear localStorage as well
+        localStorage.removeItem('tracks');
+        localStorage.removeItem('approvedTracks');
+        localStorage.removeItem('pendingTracks');
+        
+        // Clear local arrays
+        approvedTracks = [];
+        pendingTracks = [];
+        
+        // Re-render the lists
+        renderPendingTracks();
+        renderApprovedTracks();
+        
+        // Show confirmation
+        showNotification("All track data has been reset", 5000);
+        
+        // Reload the page after a delay to ensure clean state
+        setTimeout(() => {
+            location.reload();
+        }, 1500);
+    } catch (error) {
+        console.error("Error resetting storage:", error);
+        alert("There was an error resetting storage. Please try again.");
     }
 }
 
@@ -2029,23 +2116,43 @@ function seekPreviewAudio(e) {
 }
 
 // Function to reload tracks from player storage
-async function reloadTracksFromPlayer() {
+async function reloadTracksFromPlayer(showAlerts = true) {
     try {
         console.log("Reloading tracks from player storage...");
         
-        // Load tracks from player storage
-        const playerTracks = await storageService.loadData('tracks');
+        // Try to get tracks from multiple sources
+        let playerTracks = null;
+        
+        // 1. Try storage service (both Gist and localStorage)
+        playerTracks = await storageService.loadData('tracks');
+        
+        // 2. If not found, try direct localStorage access
+        if (!playerTracks || playerTracks.length === 0) {
+            console.log("No tracks found in storage service, trying localStorage directly...");
+            try {
+                const tracksJson = localStorage.getItem('tracks');
+                if (tracksJson) {
+                    playerTracks = JSON.parse(tracksJson);
+                    console.log("Loaded tracks from localStorage directly");
+                }
+            } catch (error) {
+                console.error("Error loading tracks from localStorage:", error);
+            }
+        }
         
         if (!playerTracks || playerTracks.length === 0) {
-            console.log("No tracks found in player storage");
-            alert("No tracks found in the player. Add and approve tracks first.");
-            return;
+            console.log("No tracks found in any storage");
+            if (showAlerts) {
+                alert("No tracks found in the player. Add and approve tracks first.");
+            }
+            return false;
         }
         
         // Update approved tracks with player tracks
         approvedTracks = playerTracks;
+        console.log(`Loaded ${approvedTracks.length} tracks from player`);
         
-        // Save to approved tracks storage
+        // Save to approved tracks storage to sync them
         await storageService.saveData('approvedTracks', approvedTracks);
         
         // Also save to localStorage as fallback
@@ -2054,11 +2161,17 @@ async function reloadTracksFromPlayer() {
         // Re-render the approved tracks list
         renderApprovedTracks();
         
-        console.log(`Successfully loaded ${approvedTracks.length} tracks from player`);
-        alert(`Successfully loaded ${approvedTracks.length} tracks from the player.`);
+        if (showAlerts) {
+            alert(`Successfully loaded ${approvedTracks.length} tracks from the player.`);
+        }
+        
+        return true;
     } catch (error) {
         console.error("Error reloading tracks from player:", error);
-        alert("Error loading tracks from player. Please try again.");
+        if (showAlerts) {
+            alert("Error loading tracks from player. Please try again.");
+        }
+        return false;
     }
 }
 
