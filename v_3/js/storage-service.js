@@ -603,6 +603,58 @@ class StorageService {
             return false;
         }
     }
+
+    // Add a new method for comprehensive Gist to localStorage sync
+    async forceSyncAll() {
+        try {
+            console.log("Performing comprehensive data synchronization...");
+            
+            if (!this.isGitHub || !this.GITHUB_TOKEN) {
+                console.log("Not running on GitHub or no token available, skipping Gist sync");
+                return await this.syncTrackCollections();
+            }
+            
+            // First, ensure the Gist exists and is properly initialized
+            await this.initializeGist();
+            
+            // Then sync from Gist to local
+            const syncResult = await this.syncFromGistToLocal();
+            
+            // Finally sync track collections
+            await this.syncTrackCollections();
+            
+            // Show a success notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Sync Complete', 
+                    'Successfully synchronized all data between GitHub Gist and local storage',
+                    'success',
+                    3000
+                );
+            }
+            
+            return true;
+        } catch (error) {
+            console.error("Error during comprehensive sync:", error);
+            
+            // Show error notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Sync Failed', 
+                    `Failed to synchronize data: ${error.message}`,
+                    'error',
+                    5000
+                );
+            }
+            
+            return false;
+        }
+    }
+    
+    // Add an accessor to check if we have valid Gist settings
+    get hasValidGistSettings() {
+        return this.GIST_ID && this.GIST_ID !== 'YOUR_GIST_ID_HERE' && this.GITHUB_TOKEN;
+    }
 }
 
 // Create and make the singleton instance globally available

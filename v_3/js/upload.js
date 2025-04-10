@@ -109,6 +109,9 @@ async function initUploadPage() {
         // Add batch copy button to instructions
         addBatchCopyButton();
         
+        // Add Global Sync button for syncing between browsers
+        addGlobalSyncButton();
+        
         console.log("Upload page initialization complete");
     } catch (error) {
         console.error("Error initializing upload page:", error);
@@ -129,6 +132,114 @@ async function initUploadPage() {
         renderPendingTracks();
         renderApprovedTracks();
         setupEventListeners();
+        
+        // Still try to add the sync button even in error state
+        addGlobalSyncButton();
+    }
+}
+
+// Add a Global Sync button to the UI for syncing between browsers
+function addGlobalSyncButton() {
+    // Check if button already exists
+    if (document.getElementById('global-sync-btn')) return;
+
+    const button = document.createElement('button');
+    button.id = 'global-sync-btn';
+    button.className = 'global-sync-btn';
+    button.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Global Sync';
+    button.title = 'Synchronize data with GitHub Gist to share between browsers';
+    
+    // Add event listener
+    button.addEventListener('click', () => {
+        performGlobalSync();
+    });
+    
+    // Add to the document - placing it near the other controls
+    const playerContainer = document.querySelector('.player-container');
+    const controlsArea = document.querySelector('.controls-area') || playerContainer;
+    
+    if (controlsArea) {
+        controlsArea.appendChild(button);
+        
+        // Add CSS for the button if not already in stylesheet
+        if (!document.getElementById('global-sync-styles')) {
+            const styles = document.createElement('style');
+            styles.id = 'global-sync-styles';
+            styles.textContent = `
+                .global-sync-btn {
+                    background-color: #4a90e2;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    margin: 5px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 5px;
+                    font-size: 14px;
+                }
+                .global-sync-btn:hover {
+                    background-color: #357bd8;
+                }
+                .global-sync-btn.syncing {
+                    background-color: #65a5e6;
+                    pointer-events: none;
+                }
+                .global-sync-btn i {
+                    font-size: 16px;
+                }
+            `;
+            document.head.appendChild(styles);
+        }
+    }
+}
+
+// Function to perform a global sync with GitHub Gist
+async function performGlobalSync() {
+    const syncButton = document.getElementById('global-sync-btn');
+    
+    // Check if storageService is available and has valid Gist settings
+    if (!window.storageService) {
+        alert('Storage service not available. Cannot perform global sync.');
+        return;
+    }
+    
+    if (!window.storageService.hasValidGistSettings) {
+        alert('GitHub Gist settings not configured properly. Please set up your Gist ID and GitHub token in the settings.');
+        return;
+    }
+    
+    // Update button state
+    if (syncButton) {
+        syncButton.classList.add('syncing');
+        syncButton.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Syncing...';
+        syncButton.disabled = true;
+    }
+    
+    try {
+        // Perform a comprehensive sync
+        await window.storageService.forceSyncAll();
+        
+        // After sync, reload the data
+        await loadData();
+        
+        // Update UI with new data
+        renderPendingTracks();
+        renderApprovedTracks();
+        
+        // Show success notification
+        showNotification('Global sync completed successfully! Data has been synchronized with GitHub Gist.', 5000);
+    } catch (error) {
+        console.error('Error during global sync:', error);
+        alert(`Global sync failed: ${error.message}`);
+    } finally {
+        // Reset button state
+        if (syncButton) {
+            syncButton.classList.remove('syncing');
+            syncButton.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Global Sync';
+            syncButton.disabled = false;
+        }
     }
 }
 
@@ -887,7 +998,8 @@ function approveTrack() {
         duration: track.duration,
         fileName: originalFileName,
         originalFileName: originalFileName,
-        fileSize: track.fileSize
+        fileSize: track.fileSize,
+        dateAdded: new Date().toISOString()  // Add timestamp for sorting/tracking
     };
     
     // Add to approved tracks
@@ -913,7 +1025,16 @@ function approveTrack() {
     stopPreviewPlayback();
     
     // IMPORTANT: Save to both approvedTracks and the main player tracks storage
-    saveDataToAllStorages();
+    saveDataToAllStorages().then(() => {
+        // After saving, force a sync from GitHub to local to ensure consistency
+        if (window.storageService && window.storageService.isGitHub) {
+            window.storageService.syncFromGistToLocal().then(() => {
+                console.log("Forced synchronization from Gist to local storage after track approval");
+            }).catch(err => {
+                console.error("Error during forced Gist sync:", err);
+            });
+        }
+    });
     
     // Update the UI
     renderPendingTracks();
@@ -1028,16 +1149,42 @@ async function applyToPlayer() {
                 genre: Array.isArray(track.genre) ? track.genre : ["electronic"],
                 duration: track.duration || "medium",
                 // Include fallback for embedded audio if we have it
-                fallbackSrc: track.fallbackSrc || null
+                fallbackSrc: track.fallbackSrc || null,
+                // Add timestamp if not already present
+                dateAdded: track.dateAdded || new Date().toISOString()
             };
         });
         
         // Update the local approvedTracks array with the formatted tracks
         approvedTracks = formattedTracks;
         
-        // Use the new saveApprovedTracks method to ensure tracks are properly synchronized
+        // First, save to localStorage to ensure immediate availability
+        localStorage.setItem('tracks', JSON.stringify(formattedTracks));
+        localStorage.setItem('approvedTracks', JSON.stringify(formattedTracks));
+        
+        console.log("Tracks saved to localStorage directly to ensure immediate availability");
+        
+        // Then use the storageService for proper synchronization
         await storageService.saveApprovedTracks(formattedTracks);
-        console.log("Tracks successfully saved and synchronized using new method");
+        console.log("Tracks saved to approvedTracks collection");
+        
+        // Explicitly save to main tracks collection as well
+        await storageService.saveData('tracks', formattedTracks);
+        console.log("Tracks saved to main tracks collection");
+        
+        // Force a sync from Gist to local to ensure all storage locations are updated
+        if (window.storageService && window.storageService.isGitHub) {
+            try {
+                await window.storageService.syncFromGistToLocal();
+                console.log("Force-synced from Gist to local storage after applying tracks");
+            } catch (syncError) {
+                console.error("Error during Gist sync (non-fatal):", syncError);
+            }
+        }
+        
+        // Ensure track collections are synchronized
+        await storageService.syncTrackCollections();
+        console.log("Track collections synchronized");
         
         alert('Tracks successfully applied to the player! You can now view them in the Player page.');
     } catch (error) {
