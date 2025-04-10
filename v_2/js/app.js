@@ -168,6 +168,28 @@ async function loadUploadedTracks() {
     let allTracks = [];
     
     try {
+        // First, try synchronizing all track collections
+        console.log('Synchronizing track collections...');
+        const syncResult = await storageService.syncTrackCollections();
+        
+        if (syncResult && syncResult.mainTracks && syncResult.mainTracks.length > 0) {
+            console.log(`Found ${syncResult.mainTracks.length} tracks from synchronized collections`);
+            // Use the synchronized tracks directly
+            tracksData = syncResult.mainTracks;
+            tracksLoaded = true;
+            storageTracksFound = true;
+            
+            // For debugging
+            console.log('Track sources after sync:');
+            syncResult.mainTracks.forEach(track => {
+                console.log(`- ${track.title} by ${track.artist}: ${track.src}`);
+            });
+            
+            return;
+        }
+        
+        // If we didn't get tracks from sync, continue with regular loading
+        
         // First, scan the assets/tracks directory for all MP3 files
         // This ensures all physically present files are always included
         await scanAssetsDirectoryForTracks();
@@ -213,6 +235,19 @@ async function loadUploadedTracks() {
                 }catch (syncError) {
                     console.error('Error syncing from Gist:', syncError);
                 }
+            }
+        }
+        
+        // As a last attempt, check if there are approvedTracks which should also be in main tracks
+        if (!storageTracksFound) {
+            const approvedTracks = await storageService.loadData('approvedTracks');
+            if (approvedTracks && Array.isArray(approvedTracks) && approvedTracks.length > 0) {
+                console.log('Found tracks in approvedTracks collection:', approvedTracks.length);
+                storageTracksFound = true;
+                mergeTracksWithoutDuplicates(approvedTracks);
+                
+                // Ensure these tracks are saved to the main tracks collection
+                await storageService.saveData('tracks', approvedTracks);
             }
         }
         
@@ -570,10 +605,21 @@ async function loadUploadedTracks() {
 // Add function to save tracks
 async function saveTracksData() {
     try {
-        await storageService.saveData('tracks', tracksData);
-        console.log('Tracks saved successfully');
+        // Use the storage service saveApprovedTracks method instead
+        // This ensures tracks are saved to both tracks and approvedTracks collections
+        await storageService.saveApprovedTracks(tracksData);
+        console.log('Tracks saved successfully to both collections');
     }catch (error) {
         console.error('Error saving tracks:', error);
+        
+        // Fallback to direct localStorage save
+        try {
+            localStorage.setItem('tracks', JSON.stringify(tracksData));
+            localStorage.setItem('approvedTracks', JSON.stringify(tracksData));
+            console.log('Tracks saved to localStorage as fallback');
+        } catch (localStorageError) {
+            console.error('Failed to save tracks to any storage:', localStorageError);
+        }
     }
 }
 
@@ -1904,13 +1950,27 @@ document.addEventListener('DOMContentLoaded', async function() {
         alert('Error: Some UI elements are missing. The player may not work correctly.');
     }
     
+    // Ensure the storage service is properly initialized
+    if (window.storageService) {
+        console.log('Storage service found, synchronizing track collections...');
+        try {
+            // Make sure track collections are in sync
+            await window.storageService.syncTrackCollections();
+            console.log('Track collections synchronized');
+        } catch (error) {
+            console.error('Error synchronizing track collections:', error);
+        }
+    } else {
+        console.warn('Storage service not found, track synchronization may not work properly');
+    }
+    
     // First try to load tracks from storage and directory
     await loadUploadedTracks();
     
     // Make sure filteredTracks is populated with all available tracks
     if (filteredTracks.length === 0 && tracksData.length > 0) {
         filteredTracks = [...tracksData];
-        console.log(`Populated filteredTracks with ${filteredTracks.length}tracks`);
+        console.log(`Populated filteredTracks with ${filteredTracks.length} tracks`);
     }
     
     // Initialize the player
@@ -1930,15 +1990,18 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Save the tracks to storage to ensure everything is in sync
     const trackCount = tracksData.length || 0;
-    console.log(`Player initialized with ${trackCount}tracks.`);
+    console.log(`Player initialized with ${trackCount} tracks.`);
     
     // Always save tracks to storage to ensure they'll be available next time
     if (trackCount > 0) {
         console.log('Saving tracks to storage for future use');
         await saveTracksData();
         
-        // Also save as approvedTracks to ensure they appear in the upload page
-        await storageService.saveData('approvedTracks', tracksData);
+        // Also synchronize with approvedTracks to ensure they appear in the upload page
+        await storageService.saveApprovedTracks(tracksData);
+        
+        // Final sync to ensure everything is consistent
+        await storageService.syncTrackCollections();
     }
     
     console.log('Initialization complete. Try clicking on UI elements now.');

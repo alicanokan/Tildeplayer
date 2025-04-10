@@ -23,6 +23,13 @@ class StorageService {
                 console.error("Error during initial Gist-to-Local sync:", error);
             }
         }
+        
+        // Always sync track collections to ensure consistency
+        try {
+            await this.syncTrackCollections();
+        } catch (error) {
+            console.error("Error during initial track collections sync:", error);
+        }
     }
     
     // New method to sync data from Gist to localStorage
@@ -51,11 +58,126 @@ class StorageService {
         }
     }
 
+    /**
+     * Synchronizes all track collections to ensure consistency
+     * This is the core method that fixes the issue with tracks not showing up
+     * in the main player and disappearing after refresh
+     */
+    async syncTrackCollections() {
+        try {
+            console.log("Synchronizing track collections...");
+            
+            // Load all track collections
+            const mainTracks = await this.loadData('tracks') || [];
+            const approvedTracks = await this.loadData('approvedTracks') || [];
+            const pendingTracks = await this.loadData('pendingTracks') || [];
+            
+            console.log(`Track collections before sync - Main: ${mainTracks.length}, Approved: ${approvedTracks.length}, Pending: ${pendingTracks.length}`);
+            
+            // Ensure all approved tracks are in main tracks collection
+            let mainTracksModified = false;
+            const updatedMainTracks = [...mainTracks];
+            
+            approvedTracks.forEach(approvedTrack => {
+                // Check if this approved track is already in main tracks
+                const existingTrackIndex = updatedMainTracks.findIndex(track => 
+                    track.id === approvedTrack.id || 
+                    (track.title === approvedTrack.title && track.artist === approvedTrack.artist)
+                );
+                
+                if (existingTrackIndex === -1) {
+                    // Track not found in main collection, add it
+                    updatedMainTracks.push(approvedTrack);
+                    mainTracksModified = true;
+                    console.log(`Added track "${approvedTrack.title}" to main collection`);
+                }
+            });
+            
+            // Save updated main tracks if modified
+            if (mainTracksModified) {
+                await this.saveData('tracks', updatedMainTracks);
+                console.log(`Updated main tracks collection with ${updatedMainTracks.length} tracks`);
+            }
+            
+            // Ensure all approved tracks are consistent with their source
+            // This handles the case where tracks are approved but might have disappeared
+            const validPendingTracks = pendingTracks.filter(track => 
+                !approvedTracks.some(approved => 
+                    approved.id === track.id || 
+                    (approved.title === track.title && approved.artist === track.artist)
+                )
+            );
+            
+            // If the valid pending tracks count differs, update storage
+            if (validPendingTracks.length !== pendingTracks.length) {
+                await this.saveData('pendingTracks', validPendingTracks);
+                console.log(`Updated pending tracks to remove already approved tracks. ${pendingTracks.length - validPendingTracks.length} tracks removed.`);
+            }
+            
+            return {
+                mainTracks: updatedMainTracks,
+                approvedTracks,
+                pendingTracks: validPendingTracks
+            };
+        } catch (error) {
+            console.error("Error synchronizing track collections:", error);
+            return null;
+        }
+    }
+
+    /**
+     * Special method to properly save approved tracks
+     * This ensures they get added to both approvedTracks and tracks collections
+     */
+    async saveApprovedTracks(tracks) {
+        if (!tracks || !Array.isArray(tracks)) {
+            console.error("Invalid tracks data for saveApprovedTracks");
+            return false;
+        }
+        
+        try {
+            console.log(`Saving ${tracks.length} approved tracks`);
+            
+            // First, save to approved tracks collection
+            await this.saveData('approvedTracks', tracks);
+            
+            // Then sync with main tracks collection
+            await this.syncTrackCollections();
+            
+            return true;
+        } catch (error) {
+            console.error("Error saving approved tracks:", error);
+            return false;
+        }
+    }
+
     async saveData(key, data) {
         let saveSuccess = false;
         
         // Always try to save to localStorage first for performance
         const localSaveSuccess = this.saveToLocalStorage(key, data);
+        
+        // Special handling for tracks and approvedTracks
+        if (key === 'approvedTracks' && Array.isArray(data)) {
+            // When saving approved tracks, also ensure they're in the main tracks collection
+            // But don't trigger a sync yet - we'll do that after both saves complete
+            const mainTracks = this.loadFromLocalStorage('tracks') || [];
+            let mainTracksNeedUpdate = false;
+            
+            data.forEach(approvedTrack => {
+                if (!mainTracks.some(track => track.id === approvedTrack.id || 
+                    (track.title === approvedTrack.title && track.artist === approvedTrack.artist))) {
+                    mainTracks.push(approvedTrack);
+                    mainTracksNeedUpdate = true;
+                }
+            });
+            
+            // If we added tracks to the main collection, save it
+            if (mainTracksNeedUpdate) {
+                this.saveToLocalStorage('tracks', mainTracks);
+                console.log(`Updated main tracks collection with ${data.length} approved tracks`);
+            }
+        }
         
         // If on GitHub, also save to Gist
         if (this.isGitHub) {
@@ -92,6 +214,17 @@ class StorageService {
                 }
             } catch (error) {
                 console.error(`Error loading ${key} from Gist:`, error);
+            }
+        }
+        
+        // Special handling for 'tracks' when empty - try to load from approvedTracks
+        if ((data === null || (Array.isArray(data) && data.length === 0)) && key === 'tracks') {
+            const approvedTracks = this.loadFromLocalStorage('approvedTracks');
+            if (approvedTracks && Array.isArray(approvedTracks) && approvedTracks.length > 0) {
+                console.log(`No tracks found in main collection, using ${approvedTracks.length} tracks from approvedTracks`);
+                data = approvedTracks;
+                // Save these to tracks for next time
+                this.saveToLocalStorage('tracks', approvedTracks);
             }
         }
         
@@ -186,8 +319,12 @@ class StorageService {
     // Helper method to explicitly sync between storage types
     async syncAllData() {
         if (this.isGitHub) {
-            return this.syncFromGistToLocal();
+            await this.syncFromGistToLocal();
         }
+        
+        // Also sync track collections
+        await this.syncTrackCollections();
+        
         return true;
     }
 }

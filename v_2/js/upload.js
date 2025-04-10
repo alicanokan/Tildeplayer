@@ -928,15 +928,15 @@ async function saveDataToAllStorages() {
     try {
         console.log("Saving data to all storage locations...");
         
-        // First, save with the regular saveData function
-        await saveData();
+        // First, save pending tracks
+        await storageService.saveData('pendingTracks', pendingTracks);
         
-        // Then, also save approvedTracks to the main 'tracks' storage
-        // This ensures they're immediately available in the player
-        await storageService.saveData('tracks', approvedTracks);
+        // Then use the new special method for saving approved tracks
+        // This will automatically sync them to the main tracks collection
+        await storageService.saveApprovedTracks(approvedTracks);
         
-        // Also save to localStorage directly for redundancy
-        localStorage.setItem('tracks', JSON.stringify(approvedTracks));
+        // Also synchronize all track collections just to be safe
+        await storageService.syncTrackCollections();
         
         console.log("Data saved to all storage locations successfully");
     } catch (error) {
@@ -1032,21 +1032,12 @@ async function applyToPlayer() {
             };
         });
         
-        // Save approved tracks to the main tracks storage
-        await storageService.saveData('tracks', formattedTracks);
-        console.log("Tracks successfully saved to storage:", formattedTracks);
-        
-        // IMPORTANT FIX: Also save the formatted tracks back to approvedTracks
-        // This ensures consistency between player and upload page
-        await storageService.saveData('approvedTracks', formattedTracks);
-        console.log("Also saved formatted tracks as approvedTracks");
-        
         // Update the local approvedTracks array with the formatted tracks
         approvedTracks = formattedTracks;
         
-        // Also save to localStorage directly as a fallback
-        localStorage.setItem('tracks', JSON.stringify(formattedTracks));
-        localStorage.setItem('approvedTracks', JSON.stringify(formattedTracks));
+        // Use the new saveApprovedTracks method to ensure tracks are properly synchronized
+        await storageService.saveApprovedTracks(formattedTracks);
+        console.log("Tracks successfully saved and synchronized using new method");
         
         alert('Tracks successfully applied to the player! You can now view them in the Player page.');
     } catch (error) {
@@ -2018,15 +2009,16 @@ async function saveData() {
     try {
         console.log("Saving data with storage service...");
         
-        // Save both pending and approved tracks to storage service
+        // Save pending tracks normally
         await storageService.saveData('pendingTracks', pendingTracks);
-        await storageService.saveData('approvedTracks', approvedTracks);
         
-        // Also save to localStorage directly for redundancy
-        localStorage.setItem('pendingTracks', JSON.stringify(pendingTracks));
-        localStorage.setItem('approvedTracks', JSON.stringify(approvedTracks));
+        // Use the new dedicated method for approved tracks
+        await storageService.saveApprovedTracks(approvedTracks);
         
-        console.log("Data saved successfully to both storage service and localStorage:", {
+        // Finally, synchronize all track collections to ensure consistency
+        await storageService.syncTrackCollections();
+        
+        console.log("Data saved successfully and synchronized:", {
             pendingTracks: pendingTracks.length,
             approvedTracks: approvedTracks.length
         });
@@ -2037,6 +2029,7 @@ async function saveData() {
         try {
             localStorage.setItem('pendingTracks', JSON.stringify(pendingTracks));
             localStorage.setItem('approvedTracks', JSON.stringify(approvedTracks));
+            localStorage.setItem('tracks', JSON.stringify(approvedTracks));
             console.log("Data saved to localStorage as fallback");
         } catch (localStorageError) {
             console.error("Complete failure - could not save to either storage:", localStorageError);
@@ -2048,52 +2041,41 @@ async function saveData() {
 // Modify loadData function to use storage service
 async function loadData() {
     try {
-        console.log("Attempting to load data from storage...");
+        console.log("Attempting to load data and synchronize collections...");
         
-        // Load both pending and approved tracks
-        const loadedPendingTracks = await storageService.loadData('pendingTracks');
-        let loadedApprovedTracks = await storageService.loadData('approvedTracks');
+        // First synchronize all track collections 
+        const syncResult = await storageService.syncTrackCollections();
         
-        // IMPORTANT: Check 'tracks' storage which is where the player tracks are stored
-        const playerTracks = await storageService.loadData('tracks');
-        
-        // Sync strategy: Merge player tracks and approved tracks, giving preference to approved tracks
-        // for entries with the same ID to ensure tags and metadata are preserved
-        if (playerTracks && playerTracks.length > 0) {
-            console.log(`Found ${playerTracks.length} tracks in player storage`);
+        if (syncResult) {
+            console.log("Track collections synchronized:", syncResult);
+            pendingTracks = syncResult.pendingTracks || [];
+            approvedTracks = syncResult.approvedTracks || [];
             
-            if (!loadedApprovedTracks || loadedApprovedTracks.length === 0) {
-                // If no approved tracks, just use player tracks
-                console.log("No approved tracks found, using player tracks");
-                loadedApprovedTracks = playerTracks;
-            } else {
-                // Merge player tracks with approved tracks
-                console.log(`Merging ${playerTracks.length} player tracks with ${loadedApprovedTracks.length} approved tracks`);
-                
-                // Create a map of track IDs to quickly find duplicates
-                const approvedTracksMap = new Map();
-                loadedApprovedTracks.forEach(track => {
-                    approvedTracksMap.set(track.id, track);
-                });
-                
-                // Add any player tracks that aren't in approved tracks
-                playerTracks.forEach(playerTrack => {
-                    if (!approvedTracksMap.has(playerTrack.id)) {
-                        loadedApprovedTracks.push(playerTrack);
-                    }
-                });
-                
-                console.log(`After merging: ${loadedApprovedTracks.length} total tracks`);
-            }
+            console.log("Data loaded from synchronized collections:", {
+                pendingTracks: pendingTracks.length,
+                approvedTracks: approvedTracks.length,
+                mainTracks: syncResult.mainTracks.length
+            });
+        } else {
+            // If sync failed, try loading each collection directly
+            console.log("Sync failed, loading collections directly...");
+            
+            // Load both pending and approved tracks
+            const loadedPendingTracks = await storageService.loadData('pendingTracks');
+            const loadedApprovedTracks = await storageService.loadData('approvedTracks');
+            
+            console.log("Data from storage service:", {
+                pendingTracks: loadedPendingTracks ? loadedPendingTracks.length : 0,
+                approvedTracks: loadedApprovedTracks ? loadedApprovedTracks.length : 0
+            });
+            
+            // Use the loaded data if available
+            if (loadedPendingTracks) pendingTracks = loadedPendingTracks;
+            if (loadedApprovedTracks) approvedTracks = loadedApprovedTracks;
         }
         
-        console.log("Data from storage service:", {
-            pendingTracks: loadedPendingTracks ? loadedPendingTracks.length : 0,
-            approvedTracks: loadedApprovedTracks ? loadedApprovedTracks.length : 0
-        });
-        
-        // Fall back to localStorage if needed
-        if (!loadedPendingTracks && localStorage.getItem('pendingTracks')) {
+        // Fall back to localStorage if still needed
+        if (pendingTracks.length === 0 && localStorage.getItem('pendingTracks')) {
             console.log("Falling back to localStorage for pendingTracks");
             try {
                 pendingTracks = JSON.parse(localStorage.getItem('pendingTracks')) || [];
@@ -2101,11 +2083,9 @@ async function loadData() {
                 console.error("Error parsing pendingTracks from localStorage", e);
                 pendingTracks = [];
             }
-        } else if (loadedPendingTracks) {
-            pendingTracks = loadedPendingTracks;
         }
         
-        if (!loadedApprovedTracks && localStorage.getItem('approvedTracks')) {
+        if (approvedTracks.length === 0 && localStorage.getItem('approvedTracks')) {
             console.log("Falling back to localStorage for approvedTracks");
             try {
                 approvedTracks = JSON.parse(localStorage.getItem('approvedTracks')) || [];
@@ -2126,8 +2106,6 @@ async function loadData() {
                     console.error("Error parsing tracks from localStorage", e);
                 }
             }
-        } else if (loadedApprovedTracks) {
-            approvedTracks = loadedApprovedTracks;
         }
         
         // Validate tracks to make sure they have required properties
@@ -2142,11 +2120,8 @@ async function loadData() {
             approvedTracks: approvedTracks.length
         });
         
-        // IMPORTANT: Make sure the uploaded tracks are also available in the player
-        // This ensures bidirectional sync between upload page and player
-        await storageService.saveData('tracks', approvedTracks);
-        localStorage.setItem('tracks', JSON.stringify(approvedTracks));
-        console.log("Synced approved tracks back to player tracks storage");
+        // Final synchronization to ensure everything is up to date
+        await storageService.syncTrackCollections();
         
     } catch (error) {
         console.error("Error loading data:", error);
@@ -2173,25 +2148,29 @@ async function reloadTracksFromPlayer(showAlerts = true) {
     try {
         console.log("Reloading tracks from player storage...");
         
-        // Try to get tracks from multiple sources
-        let playerTracks = null;
+        // First synchronize all track collections
+        const syncResult = await storageService.syncTrackCollections();
         
-        // 1. Try storage service (both Gist and localStorage)
-        playerTracks = await storageService.loadData('tracks');
-        
-        // 2. If not found, try direct localStorage access
-        if (!playerTracks || playerTracks.length === 0) {
-            console.log("No tracks found in storage service, trying localStorage directly...");
-            try {
-                const tracksJson = localStorage.getItem('tracks');
-                if (tracksJson) {
-                    playerTracks = JSON.parse(tracksJson);
-                    console.log("Loaded tracks from localStorage directly");
-                }
-            } catch (error) {
-                console.error("Error loading tracks from localStorage:", error);
+        if (syncResult && syncResult.mainTracks && syncResult.mainTracks.length > 0) {
+            // Use tracks from the synchronized collections
+            console.log(`Loaded ${syncResult.mainTracks.length} tracks from synchronized collections`);
+            
+            // Update approved tracks to match main tracks
+            approvedTracks = [...syncResult.mainTracks];
+            
+            // Re-render the approved tracks list
+            renderApprovedTracks();
+            
+            if (showAlerts) {
+                alert(`Successfully loaded ${approvedTracks.length} tracks from the player.`);
             }
+            
+            return true;
         }
+        
+        // If sync didn't return tracks, try direct loading
+        console.log("No tracks found in sync result, trying direct loading...");
+        const playerTracks = await storageService.loadData('tracks');
         
         if (!playerTracks || playerTracks.length === 0) {
             console.log("No tracks found in any storage");
@@ -2206,10 +2185,7 @@ async function reloadTracksFromPlayer(showAlerts = true) {
         console.log(`Loaded ${approvedTracks.length} tracks from player`);
         
         // Save to approved tracks storage to sync them
-        await storageService.saveData('approvedTracks', approvedTracks);
-        
-        // Also save to localStorage as fallback
-        localStorage.setItem('approvedTracks', JSON.stringify(approvedTracks));
+        await storageService.saveApprovedTracks(approvedTracks);
         
         // Re-render the approved tracks list
         renderApprovedTracks();
@@ -2222,7 +2198,7 @@ async function reloadTracksFromPlayer(showAlerts = true) {
     } catch (error) {
         console.error("Error reloading tracks from player:", error);
         if (showAlerts) {
-            alert("Error loading tracks from player. Please try again.");
+            alert("Error loading tracks from player. Check the console for details.");
         }
         return false;
     }
