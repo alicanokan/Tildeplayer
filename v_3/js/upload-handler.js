@@ -1136,16 +1136,47 @@ class UploadHandler {
      */
     _refreshFromLocalStorage() {
         try {
-            const tracksData = localStorage.getItem('tracks');
+            const tracksDataStr = localStorage.getItem('tracks');
             
-            if (tracksData) {
-                const tracks = JSON.parse(tracksData);
+            if (tracksDataStr) {
+                let tracks = [];
+                const parsedData = JSON.parse(tracksDataStr);
                 
-                if (Array.isArray(tracks) && tracks.length > 0) {
+                // Handle both array format and object format with tracks property
+                if (Array.isArray(parsedData)) {
+                    tracks = parsedData;
+                } else if (parsedData && parsedData.tracks && Array.isArray(parsedData.tracks)) {
+                    tracks = parsedData.tracks;
+                } else {
+                    console.warn('Unexpected tracks data format in localStorage:', parsedData);
+                }
+                
+                if (tracks.length > 0) {
                     console.log(`Loaded ${tracks.length} tracks from localStorage`);
                     
                     // Update the UI with the new tracks data
                     document.dispatchEvent(new CustomEvent('tracks-loaded', { detail: { tracks } }));
+                    
+                    // Update global tracksData if it exists
+                    if (typeof tracksData !== 'undefined') {
+                        // Clear existing tracks array
+                        tracksData.length = 0;
+                        // Add new tracks
+                        tracks.forEach(track => tracksData.push(track));
+                        console.log(`Updated global tracksData with ${tracksData.length} tracks`);
+                        
+                        // Update filteredTracks if it exists
+                        if (typeof filteredTracks !== 'undefined') {
+                            filteredTracks = [...tracksData];
+                            console.log(`Updated filteredTracks with ${filteredTracks.length} tracks`);
+                            
+                            // Render track list if the function exists
+                            if (typeof renderTrackList === 'function') {
+                                renderTrackList();
+                                console.log('Re-rendered track list');
+                            }
+                        }
+                    }
                     
                     // Show success notification
                     if (window.notificationService) {
@@ -1155,6 +1186,9 @@ class UploadHandler {
                             'success',
                             5000
                         );
+                    } else {
+                        // Use basic alert as fallback
+                        alert(`Successfully loaded ${tracks.length} tracks from storage`);
                     }
                     
                     return true;
@@ -1189,22 +1223,57 @@ class UploadHandler {
                 return response.json();
             })
             .then(data => {
-                console.log(`Fetched ${data.length} tracks from server with cache busting`);
+                // Extract the tracks array from the response
+                let tracks = [];
+                if (data.tracks && Array.isArray(data.tracks)) {
+                    tracks = data.tracks;
+                } else if (Array.isArray(data)) {
+                    tracks = data;
+                } else {
+                    console.warn('Unexpected tracks data format:', data);
+                    tracks = [];
+                }
+                
+                console.log(`Fetched ${tracks.length} tracks from server with cache busting`);
                 
                 // Update the UI with the new tracks data
-                document.dispatchEvent(new CustomEvent('tracks-loaded', { detail: { tracks: data } }));
+                document.dispatchEvent(new CustomEvent('tracks-loaded', { detail: { tracks } }));
                 
                 // Also update localStorage for future use
-                localStorage.setItem('tracks', JSON.stringify(data));
+                localStorage.setItem('tracks', JSON.stringify(tracks));
+                
+                // Update global tracksData if it exists
+                if (typeof tracksData !== 'undefined') {
+                    // Clear existing tracks array
+                    tracksData.length = 0;
+                    // Add new tracks
+                    tracks.forEach(track => tracksData.push(track));
+                    console.log(`Updated global tracksData with ${tracksData.length} tracks`);
+                    
+                    // Update filteredTracks if it exists
+                    if (typeof filteredTracks !== 'undefined') {
+                        filteredTracks = [...tracksData];
+                        console.log(`Updated filteredTracks with ${filteredTracks.length} tracks`);
+                        
+                        // Render track list if the function exists
+                        if (typeof renderTrackList === 'function') {
+                            renderTrackList();
+                            console.log('Re-rendered track list');
+                        }
+                    }
+                }
                 
                 // Show success notification
                 if (window.notificationService) {
                     window.notificationService.show(
                         'Refresh Complete', 
-                        `Successfully loaded ${data.length} tracks from server`,
+                        `Successfully loaded ${tracks.length} tracks from server`,
                         'success',
                         3000
                     );
+                } else {
+                    // Use basic alert as fallback
+                    alert(`Successfully loaded ${tracks.length} tracks from server`);
                 }
             })
             .catch(error => {
@@ -1218,6 +1287,9 @@ class UploadHandler {
                         'error',
                         5000
                     );
+                } else {
+                    // Use basic alert as fallback
+                    alert(`Failed to refresh tracks: ${error.message}`);
                 }
             });
     }

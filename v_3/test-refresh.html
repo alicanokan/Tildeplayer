@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tildeplayer Track Refresh Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.5;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button.force {
+            background-color: #2196F3;
+        }
+        button.force:hover {
+            background-color: #0b7dda;
+        }
+        .output {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            min-height: 100px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            margin-top: 20px;
+        }
+        #track-count {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        #file-data {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .action-group {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        h3 {
+            margin-top: 0;
+        }
+        #track-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        .track-item {
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .track-item:hover {
+            background-color: #f9f9f9;
+        }
+        .console-log {
+            font-family: monospace;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #222;
+            color: #00FF00;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tildeplayer Track Refresh Test</h1>
+    
+    <div class="console-log" id="console-log"></div>
+    
+    <div class="action-group">
+        <h3>1. Check knownfiles.json</h3>
+        <button id="check-known-files">Check Known Files</button>
+        <div class="output" id="known-file-output">Click button to view knownfiles.json content</div>
+    </div>
+    
+    <div class="action-group">
+        <h3>2. Check tracks.json</h3>
+        <button id="check-tracks-json">Check Tracks JSON</button>
+        <div class="output" id="tracks-json-output">Click button to view tracks.json content</div>
+    </div>
+    
+    <div class="action-group">
+        <h3>3. Force Refresh</h3>
+        <p>Use these buttons to update the track list with the new knownfiles.json</p>
+        <button id="normal-refresh">Normal Refresh</button>
+        <button id="force-refresh" class="force">Force Refresh</button>
+        <div class="output" id="refresh-output">Refresh result will appear here</div>
+    </div>
+
+    <div class="action-group">
+        <h3>4. Check Current Track Data</h3>
+        <button id="check-track-data">Check Current Track Data</button>
+        <div id="track-count">0 tracks loaded</div>
+        <div id="track-list"></div>
+    </div>
+
+    <script>
+        // Console log capture
+        const originalConsoleLog = console.log;
+        const consoleLogElement = document.getElementById('console-log');
+        
+        console.log = function() {
+            // Call original console.log
+            originalConsoleLog.apply(console, arguments);
+            
+            // Add to our console log element
+            const args = Array.from(arguments);
+            const logLine = document.createElement('div');
+            logLine.textContent = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg) : arg
+            ).join(' ');
+            consoleLogElement.appendChild(logLine);
+            
+            // Auto-scroll to bottom
+            consoleLogElement.scrollTop = consoleLogElement.scrollHeight;
+        };
+        
+        // Function to fetch and display known files
+        document.getElementById('check-known-files').addEventListener('click', async () => {
+            const output = document.getElementById('known-file-output');
+            output.textContent = 'Loading...';
+            
+            try {
+                const response = await fetch('assets/tracks/knownfiles.json');
+                if (!response.ok) {
+                    throw new Error(`Failed to load knownfiles.json: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2);
+                console.log(`Loaded ${data.length} known files from knownfiles.json`);
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+                console.error('Error loading knownfiles.json:', error);
+            }
+        });
+        
+        // Function to fetch and display tracks.json
+        document.getElementById('check-tracks-json').addEventListener('click', async () => {
+            const output = document.getElementById('tracks-json-output');
+            output.textContent = 'Loading...';
+            
+            try {
+                const response = await fetch('assets/tracks/tracks.json');
+                if (!response.ok) {
+                    throw new Error(`Failed to load tracks.json: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                output.textContent = JSON.stringify(data, null, 2).substring(0, 1000) + '... (truncated)';
+                console.log(`Loaded ${data.tracks ? data.tracks.length : 'unknown'} tracks from tracks.json`);
+                
+                // Show count
+                if (data.tracks) {
+                    document.getElementById('track-count').textContent = `${data.tracks.length} tracks in tracks.json`;
+                }
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+                console.error('Error loading tracks.json:', error);
+            }
+        });
+        
+        // Function to perform normal refresh
+        document.getElementById('normal-refresh').addEventListener('click', async () => {
+            const output = document.getElementById('refresh-output');
+            output.textContent = 'Refreshing tracks...';
+            
+            try {
+                if (window.refreshTracksData) {
+                    console.log('Calling refreshTracksData()...');
+                    window.refreshTracksData();
+                    output.textContent = 'Refresh initiated. Check console for results.';
+                } else if (window.uploadHandler && window.uploadHandler.refreshTracksData) {
+                    console.log('Calling uploadHandler.refreshTracksData()...');
+                    window.uploadHandler.refreshTracksData();
+                    output.textContent = 'Refresh initiated. Check console for results.';
+                } else {
+                    throw new Error('refreshTracksData function not found. Make sure you are on a page with the upload handler initialized.');
+                }
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+                console.error('Error during refresh:', error);
+            }
+        });
+        
+        // Function to perform force refresh
+        document.getElementById('force-refresh').addEventListener('click', async () => {
+            const output = document.getElementById('refresh-output');
+            output.textContent = 'Force refreshing tracks...';
+            
+            try {
+                if (window.forceRefresh) {
+                    console.log('Calling forceRefresh()...');
+                    window.forceRefresh();
+                    output.textContent = 'Force refresh initiated. Check console for results.';
+                } else if (window._forceRefreshTracks) {
+                    console.log('Calling _forceRefreshTracks()...');
+                    window._forceRefreshTracks();
+                    output.textContent = 'Force refresh initiated. Check console for results.';
+                } else if (window.uploadHandler && window.uploadHandler.forceRefresh) {
+                    console.log('Calling uploadHandler.forceRefresh()...');
+                    window.uploadHandler.forceRefresh();
+                    output.textContent = 'Force refresh initiated. Check console for results.';
+                } else {
+                    throw new Error('forceRefresh function not found. Make sure you are on a page with the upload handler initialized.');
+                }
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+                console.error('Error during force refresh:', error);
+            }
+        });
+        
+        // Function to check current track data
+        document.getElementById('check-track-data').addEventListener('click', () => {
+            const trackList = document.getElementById('track-list');
+            const trackCount = document.getElementById('track-count');
+            
+            try {
+                // Check for different possible locations of track data
+                let tracks = [];
+                
+                if (window.tracksData && Array.isArray(window.tracksData)) {
+                    tracks = window.tracksData;
+                    console.log('Found track data in window.tracksData');
+                } else if (window.uploadHandler && window.uploadHandler.tracksData) {
+                    tracks = window.uploadHandler.tracksData;
+                    console.log('Found track data in window.uploadHandler.tracksData');
+                } else {
+                    // Try localStorage as a last resort
+                    try {
+                        const storedData = localStorage.getItem('tracks');
+                        if (storedData) {
+                            const parsed = JSON.parse(storedData);
+                            if (Array.isArray(parsed)) {
+                                tracks = parsed;
+                                console.log('Found track data in localStorage (array format)');
+                            } else if (parsed && parsed.tracks && Array.isArray(parsed.tracks)) {
+                                tracks = parsed.tracks;
+                                console.log('Found track data in localStorage (object format)');
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing tracks from localStorage:', e);
+                    }
+                }
+                
+                // Update track count
+                trackCount.textContent = `${tracks.length} tracks loaded in memory`;
+                
+                // Render track list
+                trackList.innerHTML = '';
+                if (tracks.length === 0) {
+                    trackList.innerHTML = '<p>No tracks found in memory</p>';
+                } else {
+                    tracks.forEach((track, index) => {
+                        const trackItem = document.createElement('div');
+                        trackItem.className = 'track-item';
+                        trackItem.innerHTML = `
+                            <strong>${index + 1}. ${track.title || 'Untitled'}</strong>
+                            ${track.artist ? ` by ${track.artist}` : ''}
+                            <br>
+                            <small>${track.src || 'No source'}</small>
+                        `;
+                        trackList.appendChild(trackItem);
+                    });
+                }
+            } catch (error) {
+                trackList.innerHTML = `<p>Error: ${error.message}</p>`;
+                console.error('Error checking track data:', error);
+            }
+        });
+        
+        // Log that the test page is ready
+        console.log('Track refresh test page loaded and ready');
+    </script>
+</body>
+</html> 

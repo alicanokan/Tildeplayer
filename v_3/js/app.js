@@ -279,110 +279,64 @@ function updateTrackLoadingProgress(percent, status, details) {
 
 // Find the loadUploadedTracks function and update it
 async function loadUploadedTracks() {
-    console.log('Loading tracks from storage and directory...');
-    let tracksLoaded = false;
+    console.log('Loading uploaded tracks...');
+    
+    // Clear existing tracks
+    tracksData = [];
+    
+    // Try to load from storage first
     let storageTracksFound = false;
     
-    // Show loading UI
-    showTrackLoadingUI(true);
-    updateTrackLoadingProgress(10, 'Starting track discovery', 'Checking storage for existing tracks...');
-    
     try {
-        // First, scan the assets/tracks directory for all MP3 files
-        // This ensures all physically present files are always included
-        updateTrackLoadingProgress(20, 'Scanning audio files', 'Looking for tracks in assets/tracks directory...');
-        await scanAssetsDirectoryForTracks();
-        
-        // Then try loading from storage service
-        updateTrackLoadingProgress(40, 'Checking storage service', 'Looking for saved tracks in storage...');
-        const storageTracks = await storageService.loadData('tracks');
-        if (storageTracks && Array.isArray(storageTracks) && storageTracks.length > 0) {
-            console.log('Loaded tracks from storage service:', storageTracks.length);
-            updateTrackLoadingProgress(50, 'Found tracks in storage', `Loading ${storageTracks.length} tracks from storage...`);
+        if (window.storageService && window.storageService.isAvailable()) {
+            const storageTracks = await safeStorageOperation(
+                async () => await storageService.loadData('tracks'),
+                []
+            );
             
-            // Merge with existing tracks, avoiding duplicates
-            storageTracksFound = true;
-            mergeTracksWithoutDuplicates(storageTracks);
-        }
-        
-        // If no tracks from storage service, try localStorage directly
-        if (!storageTracksFound) {
-            console.log('No tracks found in storage service, checking localStorage directly...');
-            updateTrackLoadingProgress(60, 'Checking local storage', 'No tracks in storage service, trying local storage...');
+            if (storageTracks && storageTracks.length > 0) {
+                console.log(`Loaded ${storageTracks.length} tracks from storage`);
+                tracksData = storageTracks;
+                storageTracksFound = true;
+            } else {
+                console.log('No tracks found in storage');
+            }
             
-            try {
-                const localStorageTracks = JSON.parse(localStorage.getItem('tracks'));
-                if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
-                    console.log('Found tracks in localStorage:', localStorageTracks.length);
-                    updateTrackLoadingProgress(65, 'Found tracks in local storage', `Loading ${localStorageTracks.length} tracks from local storage...`);
+            // If no tracks found and running on GitHub, try to sync from Gist
+            if (!storageTracksFound && window.storageService && 
+                window.storageService.isAvailable() && 
+                window.storageService.isRunningOnGitHub()) {
+                console.log('Running on GitHub Pages with no local tracks, attempting to sync from Gist...');
+                
+                await safeStorageOperation(
+                    async () => await window.storageService.syncFromGistToLocal(),
+                    false
+                );
+                
+                // Try to load again after sync
+                const syncedTracks = await safeStorageOperation(
+                    async () => await storageService.loadData('tracks'),
+                    []
+                );
+                
+                if (syncedTracks && syncedTracks.length > 0) {
+                    console.log(`Loaded ${syncedTracks.length} tracks after syncing from Gist`);
+                    tracksData = syncedTracks;
                     storageTracksFound = true;
-                    mergeTracksWithoutDuplicates(localStorageTracks);
-                }
-            } catch (localStorageError) {
-                console.error('Error parsing tracks from localStorage:', localStorageError);
-                updateTrackLoadingProgress(65, 'Error checking local storage', 'Unable to load tracks from local storage');
-            }
-            
-            // If still no tracks, check if we're on GitHub Pages and need to sync from Gist
-            if (!storageTracksFound && window.storageService && window.storageService.isRunningOnGitHub()) {
-                console.log('Attempting to sync from Gist...');
-                updateTrackLoadingProgress(70, 'Syncing from GitHub Gist', 'Attempting to load tracks from GitHub Gist...');
-                try {
-                    await window.storageService.syncFromGistToLocal();
-                    
-                    // Try loading tracks again after sync
-                    const syncedTracks = await storageService.loadData('tracks');
-                    if (syncedTracks && Array.isArray(syncedTracks) && syncedTracks.length > 0) {
-                        console.log('Found tracks after Gist sync:', syncedTracks.length);
-                        updateTrackLoadingProgress(75, 'Tracks loaded from Gist', `Found ${syncedTracks.length} tracks in GitHub Gist`);
-                        storageTracksFound = true;
-                        mergeTracksWithoutDuplicates(syncedTracks);
-                    }
-                } catch (syncError) {
-                    console.error('Error syncing from Gist:', syncError);
-                    updateTrackLoadingProgress(75, 'Gist sync error', 'Could not sync tracks from GitHub Gist');
                 }
             }
         }
-        
-        // Process the final merged track list
-        updateTrackLoadingProgress(80, 'Processing tracks', 'Finalizing track discovery...');
-        processAndUseDiscoveredTracks();
-        
     } catch (error) {
-        console.error('Error loading tracks:', error);
-        updateTrackLoadingProgress(85, 'Error loading tracks', `Error: ${error.message}`);
-        
-        // Try localStorage as fallback
-        try {
-            const localStorageTracks = JSON.parse(localStorage.getItem('tracks'));
-            if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
-                console.log('Using localStorage fallback for tracks:', localStorageTracks.length);
-                updateTrackLoadingProgress(90, 'Using fallback tracks', `Loading ${localStorageTracks.length} tracks from fallback source`);
-                mergeTracksWithoutDuplicates(localStorageTracks);
-                processAndUseDiscoveredTracks();
-            } else {
-                // If still no tracks, use the sample tracks as a last resort
-                updateTrackLoadingProgress(95, 'Using sample tracks', 'No stored tracks found, loading sample tracks');
-                useSampleTracksAsFallback();
-            }
-        } catch (fallbackError) {
-            console.error('Fallback loading failed, using discovered directory tracks:', fallbackError);
-            if (allTracks.length > 0) {
-                updateTrackLoadingProgress(95, 'Using discovered tracks', `Using ${allTracks.length} tracks found in directory`);
-                processAndUseDiscoveredTracks();
-            } else {
-                updateTrackLoadingProgress(95, 'Using sample tracks', 'No tracks found, loading sample tracks');
-                useSampleTracksAsFallback();
-            }
-        }
-    } finally {
-        // Hide loading UI when complete
-        updateTrackLoadingProgress(100, 'Track loading complete', `${allTracks.length} tracks loaded successfully`);
-        setTimeout(() => {
-            showTrackLoadingUI(false);
-        }, 2000); // Hide after 2 seconds
+        console.error('Error loading tracks from storage:', error);
+        showNotification(
+            'Storage Error', 
+            'Failed to load tracks from storage. Using default tracks.',
+            'warning',
+            5000
+        );
     }
+    
+    // ... rest of the function ...
 }
 
 // Update the scanAssetsDirectoryForTracks function to include progress updates

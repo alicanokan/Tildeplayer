@@ -1456,4 +1456,64 @@ footer {
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+/* Storage Mode Indicator */
+.storage-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: #fff;
+    margin-left: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.storage-indicator i {
+    margin-right: 5px;
+}
+
+.storage-indicator:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+}
+
+.storage-indicator.gist-mode {
+    background-color: #2da44e;
+}
+
+.storage-indicator.local-mode {
+    background-color: #0969da;
+}
+
+/* Tooltip for GitHub token status */
+.github-token-status {
+    display: inline-block;
+    margin-left: 5px;
+    font-size: 0.9em;
+}
+
+.github-token-status.valid {
+    color: #2da44e;
+}
+
+.github-token-status.invalid {
+    color: #cf222e;
+}
+
+.token-error-details {
+    font-size: 0.85em;
+    color: #cf222e;
+    margin-top: 5px;
+    padding: 5px;
+    background-color: rgba(207, 34, 46, 0.1);
+    border-radius: 4px;
+    display: none;
+}
+
+.token-error-details.visible {
+    display: block;
 } 

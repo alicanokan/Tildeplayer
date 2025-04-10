@@ -1,27 +1,35 @@
 // Storage Service for TildeSoundArt Player
 class StorageService {
-    constructor() {
+    constructor(options = {}) {
         console.log('Initializing storage service...');
         
-        // Core properties
-        this.GIST_ID = localStorage.getItem('gistId') || null;
-        this.GITHUB_TOKEN = localStorage.getItem('githubToken') || null;
-        this.STORAGE_MODE = this.GIST_ID ? 'GIST' : 'LOCAL';
-        this.SYNC_TIMESTAMP = null;
+        this.STORAGE_KEY = 'tildeplayer-tracks';
+        this.APPROVED_TRACKS_KEY = 'tildeplayer-approved-tracks';
+        this.PENDING_TRACKS_KEY = 'tildeplayer-pending-tracks';
+        this.GIST_ID = localStorage.getItem('gist-id') || 'YOUR_GIST_ID_HERE';
+        this.GITHUB_TOKEN = localStorage.getItem('github-token') || '';
+        this.STORAGE_MODE = this.GIST_ID && this.GIST_ID !== 'YOUR_GIST_ID_HERE' ? 'gist' : 'local';
+        this.SYNC_TIMESTAMP = localStorage.getItem('lastGistSync') || null;
+        this.isReady = false;
+        this.initializationError = null;
+        this.tokenValidationStatus = null;
         
         // Flag to track if initialization is complete
         this._initialized = false;
         // Flag to track service availability
         this._available = true;
         // Flag to track if token is valid
-        this._tokenValid = null;
+        this._tokenValid = false;
         // Retry counts for initialization
         this._initRetryCount = 0;
         this._maxInitRetries = 3;
         // Callback for force refresh after sync
-        this.forceRefreshAfterSync = null;
+        this.forceRefreshAfterSync = options.forceRefreshAfterSync || null;
         // Tracks data reference
         this._tracks = [];
+        
+        // Check if running on GitHub pages
+        this.isGitHub = window.location.hostname.endsWith('github.io');
         
         // Log initial state
         console.log(`Storage mode: ${this.STORAGE_MODE}`);
@@ -29,7 +37,7 @@ class StorageService {
         console.log(`GitHub token: ${this.GITHUB_TOKEN ? 'configured' : 'not configured'}`);
         
         // Initialize internal storage
-        this._init();
+        this._initialize();
         
         // Dispatch event to notify other components that storage service is ready
         window.addEventListener('DOMContentLoaded', () => {
@@ -45,119 +53,326 @@ class StorageService {
         window.storageService = this;
     }
     
-    // Add new method to announce when the storage service is ready
-    _announceReady() {
+    // Private method to initialize the service
+    async _initialize() {
+        console.log('StorageService: Starting initialization');
         this._initialized = true;
-        console.log('Storage service initialization complete');
         
-        // Create and dispatch a custom event to announce the storage service is ready
-        const event = new CustomEvent('storage-service-ready', {
-            detail: {
-                service: this,
-                storageMode: this.STORAGE_MODE,
-                hasGistId: !!this.GIST_ID,
-                hasToken: !!this.GITHUB_TOKEN,
-                tokenValid: this._tokenValid,
-                available: this._available
-            },
-            bubbles: true
-        });
-        
-        // Dispatch on window so it can be caught anywhere
-        window.dispatchEvent(event);
-        console.log('Storage service ready event dispatched with status:', {
-            available: this._available,
-            mode: this.STORAGE_MODE,
-            tokenValid: this._tokenValid
-        });
-    }
-    
-    // Initialize internal storage 
-    _init() {
         try {
-            // Load necessary data into memory
-            const tracks = localStorage.getItem('tracks');
-            const approvedTracks = localStorage.getItem('approvedTracks');
-            const pendingTracks = localStorage.getItem('pendingTracks');
+            // Load local data first (as fallback)
+            this._loadLocalData();
             
-            // Set up internal properties
-            this._tracks = tracks ? JSON.parse(tracks) : [];
-            this._approvedTracks = approvedTracks ? JSON.parse(approvedTracks) : [];
-            this._pendingTracks = pendingTracks ? JSON.parse(pendingTracks) : [];
-            
-            // Set last sync time if available
-            const lastSync = localStorage.getItem('lastGistSync');
-            if (lastSync) {
-                this.SYNC_TIMESTAMP = lastSync;
-            }
-            
-            console.log(`Storage service initialized with ${this._tracks.length} tracks`);
-            
-            // Validate token in background if in Gist mode
-            if (this.STORAGE_MODE === 'GIST' && this.GITHUB_TOKEN) {
-                this.validateToken(this.GITHUB_TOKEN)
-                    .then(isValid => {
-                        this._tokenValid = isValid;
-                        console.log(`GitHub token validation result: ${isValid ? 'valid' : 'invalid'}`);
-                        
-                        // If token is invalid and we're in Gist mode, show a warning
-                        if (!isValid && this.STORAGE_MODE === 'GIST') {
-                            this.showTokenReminder('GitHub token appears to be invalid or has insufficient permissions.');
-                        }
-                    })
-                    .catch(err => {
-                        console.error('Token validation error:', err);
-                        this._tokenValid = false;
-                    });
-            }
-            
-            // Set service as available
-            this._available = true;
-        } catch (error) {
-            console.error('Error initializing storage service internal data:', error);
-            
-            // Handle initialization failure
-            if (this._initRetryCount < this._maxInitRetries) {
-                this._initRetryCount++;
-                console.log(`Retrying initialization (${this._initRetryCount}/${this._maxInitRetries})...`);
-                setTimeout(() => this._init(), 1000);
-            } else {
-                console.error('Failed to initialize storage service after maximum retries');
-                // Initialize with empty arrays as fallback
-                this._tracks = [];
-                this._approvedTracks = [];
-                this._pendingTracks = [];
-                // Mark service as available but with issues
-                this._available = true;
-                
-                // Show a notification about the issue
-                if (window.notificationService) {
-                    window.notificationService.show(
-                        'Storage Initialization Issue', 
-                        'There was a problem initializing the storage. Using local storage as fallback.',
-                        'warning',
-                        8000
-                    );
+            // Try GitHub token validation if we have one
+            if (this.GITHUB_TOKEN) {
+                const isTokenValid = await this.validateToken(this.GITHUB_TOKEN);
+                if (!isTokenValid) {
+                    console.warn('StorageService: GitHub token validation failed');
+                    // Continue with local storage but set appropriate warning
+                    this.initializationError = {
+                        code: 'INVALID_TOKEN',
+                        message: 'GitHub token validation failed. Check that your token has the correct permissions (gist scope).'
+                    };
                 }
+            } else if (this.STORAGE_MODE === 'gist') {
+                console.warn('StorageService: Gist mode selected but no GitHub token provided');
+                this.initializationError = {
+                    code: 'MISSING_TOKEN',
+                    message: 'GitHub token is required for Gist storage mode. Please add a token in settings.'
+                };
+            }
+            
+            // Initialize storage
+            await this.initializeStorage();
+            
+            // Mark as initialized
+            this._initialized = true;
+            
+            // Announce ready state
+            this._announceReady();
+        } catch (error) {
+            console.error('StorageService: Initialization failed', error);
+            this.initializationError = {
+                code: 'INIT_FAILED',
+                message: `Storage service initialization failed: ${error.message}`
+            };
+            
+            // Show error notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Storage Service Error', 
+                    `Failed to initialize storage service: ${error.message}`,
+                    'error',
+                    10000,
+                    // Add callback to open settings
+                    () => {
+                        // Toggle the Gist setup panel to open
+                        const toggleButton = document.querySelector('.gist-setup-toggle');
+                        if (toggleButton) toggleButton.click();
+                    }
+                );
             }
         }
+    }
+    
+    // Private method to load data from localStorage
+    _loadLocalData() {
+        console.log('StorageService: Loading data from localStorage');
+        
+        try {
+            // Load tracks from localStorage
+            const tracksData = localStorage.getItem('tracks');
+            if (tracksData) {
+                this._tracks = JSON.parse(tracksData);
+                console.log(`StorageService: Loaded ${this._tracks.length} tracks from localStorage`);
+            }
+            
+            // Load approved tracks
+            const approvedData = localStorage.getItem('approvedTracks');
+            if (approvedData) {
+                this._approvedTracks = JSON.parse(approvedData);
+                console.log(`StorageService: Loaded ${this._approvedTracks.length} approved tracks from localStorage`);
+            }
+            
+            // Load pending tracks
+            const pendingData = localStorage.getItem('pendingTracks');
+            if (pendingData) {
+                this._pendingTracks = JSON.parse(pendingData);
+                console.log(`StorageService: Loaded ${this._pendingTracks.length} pending tracks from localStorage`);
+            }
+            
+            // Load playlist
+            const playlistData = localStorage.getItem('playlist');
+            if (playlistData) {
+                this._playlist = JSON.parse(playlistData);
+                console.log(`StorageService: Loaded playlist with ${this._playlist.length} items from localStorage`);
+            }
+        } catch (error) {
+            console.error('StorageService: Error loading data from localStorage', error);
+            throw new Error(`Failed to load local storage data: ${error.message}`);
+        }
+    }
+    
+    // Announce that the service is ready
+    _announceReady() {
+        console.log(`StorageService: Ready (Mode: ${this.STORAGE_MODE}, Initialized: ${this._initialized})`);
+        
+        if (this.initializationError) {
+            console.warn(`StorageService: Ready with warnings - ${this.initializationError.message}`);
+        }
+        
+        // Log storage mode and status
+        console.log("Storage mode:", this.hasValidGistSettings ? "GitHub Gist" : "Local Storage");
+        
+        // Add storage info to the UI if it exists
+        const storageInfoElement = document.getElementById('storage-mode-info');
+        if (storageInfoElement) {
+            storageInfoElement.textContent = this.hasValidGistSettings ? 
+                `GitHub Gist (ID: ${this.GIST_ID.substring(0, 8)}...)` : 
+                'Local Storage';
+        }
+        
+        // Call the onReady callback if exists
+        if (typeof this.forceRefreshAfterSync === 'function') {
+            this.forceRefreshAfterSync();
+        }
+        
+        // Dispatch an event for components that need to know when storage is ready
+        document.dispatchEvent(new CustomEvent('storageReady', { 
+            detail: { 
+                service: this,
+                mode: this.STORAGE_MODE,
+                hasError: !!this.initializationError,
+                error: this.initializationError
+            } 
+        }));
+    }
+    
+    // Validate GitHub token
+    async validateGitHubToken() {
+        try {
+            const response = await fetch('https://api.github.com/user', {
+                headers: {
+                    'Authorization': `token ${this.GITHUB_TOKEN}`
+                }
+            });
+
+            if (response.status === 200) {
+                this.tokenValidationStatus = 'valid';
+                return true;
+            } else if (response.status === 401) {
+                this.tokenValidationStatus = 'invalid';
+                return false;
+            } else if (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0') {
+                this.tokenValidationStatus = 'rate_limited';
+                return false;
+            } else {
+                this.tokenValidationStatus = `unexpected_status_${response.status}`;
+                return false;
+            }
+        } catch (error) {
+            this.tokenValidationStatus = `network_error: ${error.message}`;
+            return false;
+        }
+    }
+    
+    // Load tracks from localStorage
+    loadTracksFromLocalStorage() {
+        try {
+            const tracksData = localStorage.getItem('tracks');
+            if (tracksData) {
+                try {
+                    this._tracks = JSON.parse(tracksData);
+                    console.log(`Loaded ${this._tracks.length} tracks from localStorage`);
+                } catch (parseError) {
+                    console.error('Error parsing tracks from localStorage:', parseError);
+                    this._tracks = [];
+                    this.initializationError = {
+                        code: 'PARSE_ERROR',
+                        message: 'Error parsing tracks data from local storage',
+                        details: parseError.message
+                    };
+                }
+            } else {
+                console.log('No tracks found in localStorage');
+                this._tracks = [];
+            }
+        } catch (error) {
+            console.error('Error accessing localStorage:', error);
+            this._tracks = [];
+            this.initializationError = {
+                code: 'LOCAL_STORAGE_ERROR',
+                message: 'Error accessing local storage',
+                details: error.message
+            };
+        }
+    }
+    
+    // Sync from Gist to local storage
+    async syncFromGist() {
+        if (!this.GIST_ID) {
+            throw new Error('Gist ID is not set');
+        }
+
+        try {
+            const headers = {};
+            if (this.GITHUB_TOKEN) {
+                headers['Authorization'] = `token ${this.GITHUB_TOKEN}`;
+            }
+
+            const response = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
+                headers: headers
+            });
+
+            // Handle various response statuses
+            if (response.status === 200) {
+                const data = await response.json();
+                
+                // Process tracks data
+                if (data.files[this.STORAGE_KEY + '.json']) {
+                    const content = data.files[this.STORAGE_KEY + '.json'].content;
+                    localStorage.setItem(this.STORAGE_KEY, content);
+                } else {
+                    console.warn(`${this.STORAGE_KEY + '.json'} not found in Gist`);
+                }
+                
+                // Process approved tracks data
+                if (data.files[this.APPROVED_TRACKS_KEY + '.json']) {
+                    const content = data.files[this.APPROVED_TRACKS_KEY + '.json'].content;
+                    localStorage.setItem(this.APPROVED_TRACKS_KEY, content);
+                }
+                
+                // Process pending tracks data
+                if (data.files[this.PENDING_TRACKS_KEY + '.json']) {
+                    const content = data.files[this.PENDING_TRACKS_KEY + '.json'].content;
+                    localStorage.setItem(this.PENDING_TRACKS_KEY, content);
+                }
+                
+                return true;
+            } else if (response.status === 404) {
+                throw new Error('Gist not found. Check your Gist ID.');
+            } else if (response.status === 403) {
+                const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
+                if (rateLimitRemaining === '0') {
+                    throw new Error('GitHub API rate limit exceeded. Try again later or use a GitHub token.');
+                } else {
+                    throw new Error('Access forbidden. Check your GitHub token permissions.');
+                }
+            } else if (response.status === 401) {
+                throw new Error('Authentication failed. Your GitHub token is invalid or expired.');
+            } else {
+                throw new Error(`GitHub API returned status ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error syncing from Gist:', error);
+            throw error;
+        }
+    }
+    
+    // Get initialization error details
+    getInitializationError() {
+        return this.initializationError;
+    }
+    
+    // Get token validation status
+    getTokenValidationStatus() {
+        return this.tokenValidationStatus;
+    }
+    
+    // Check if service is ready and throws a detailed error if not
+    ensureReady() {
+        if (!this._initialized) {
+            const errorDetails = this.initializationError ? 
+                `Error code: ${this.initializationError.code}. ${this.initializationError.message}` : 
+                'Unknown initialization error';
+            
+            const error = new Error(`Storage service not available: ${errorDetails}`);
+            error.code = this.initializationError?.code || 'SERVICE_NOT_READY';
+            error.details = this.initializationError;
+            throw error;
+        }
+        return true;
+    }
+    
+    // Get all tracks
+    getTracks() {
+        this.ensureReady();
+        return this._tracks;
     }
     
     // Show a notification to remind users about token setup
-    showTokenReminder(customMessage = null) {
-        const message = customMessage || 'A GitHub token is needed for full functionality. Please configure it in settings.';
+    showTokenReminder() {
+        if (!window.notificationService) return;
         
-        if (window.notificationService) {
-            window.notificationService.show(
-                'GitHub Token Required', 
-                message,
-                'warning',
-                8000
-            );
-        } else {
-            console.warn('GitHub token required for full functionality');
-            alert('GitHub Token Required: ' + message);
-        }
+        window.notificationService.show(
+            'GitHub Token Required', 
+            `A GitHub Personal Access Token with 'gist' scope is required to access private or modify public Gists.`,
+            'warning',
+            15000,
+            // Add callback for direct navigation to the token setup
+            () => {
+                // Toggle the Gist setup panel to open
+                const toggleButton = document.querySelector('.gist-setup-toggle');
+                if (toggleButton) {
+                    toggleButton.click();
+                    
+                    // Focus on the token input
+                    setTimeout(() => {
+                        const tokenInput = document.getElementById('github-token-input');
+                        if (tokenInput) {
+                            tokenInput.focus();
+                            // Highlight the field
+                            tokenInput.style.border = '2px solid #f44336';
+                            tokenInput.style.boxShadow = '0 0 8px rgba(244, 67, 54, 0.5)';
+                            setTimeout(() => {
+                                tokenInput.style.border = '';
+                                tokenInput.style.boxShadow = '';
+                            }, 3000);
+                        }
+                    }, 500);
+                }
+            },
+            'Add Token'
+        );
     }
     
     // New method to refresh token and Gist ID if there's an error
@@ -166,7 +381,7 @@ class StorageService {
         
         if (newToken) {
             this.GITHUB_TOKEN = newToken;
-            localStorage.setItem('githubToken', newToken);
+            localStorage.setItem('github-token', newToken);
             updated = true;
             console.log('GitHub token refreshed');
             
@@ -176,7 +391,7 @@ class StorageService {
                     this._tokenValid = isValid;
                     if (!isValid) {
                         console.warn('New token validation failed - token may have insufficient permissions');
-                        this.showTokenReminder('The provided GitHub token may have insufficient permissions (gist scope required).');
+                        this.showTokenReminder();
                     }
                 })
                 .catch(error => {
@@ -187,8 +402,8 @@ class StorageService {
         
         if (newGistId) {
             this.GIST_ID = newGistId;
-            localStorage.setItem('gistId', newGistId);
-            this.STORAGE_MODE = 'GIST';
+            localStorage.setItem('gist-id', newGistId);
+            this.STORAGE_MODE = 'gist';
             updated = true;
             console.log('Gist ID refreshed to:', newGistId);
         }
@@ -409,6 +624,9 @@ class StorageService {
         // Log request details for debugging
         console.log(`GitHub API ${operation} failed with status ${response.status}`);
         
+        const error = new Error();
+        error.status = response.status;
+        
         if (response.status === 403) {
             // Could be rate limit or permissions
             const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
@@ -416,22 +634,29 @@ class StorageService {
             
             if (rateLimitRemaining === '0') {
                 const resetTime = rateLimitReset ? new Date(parseInt(rateLimitReset) * 1000) : new Date();
-                return new Error(`GitHub API rate limit exceeded. Try again after ${resetTime.toLocaleTimeString()} or add a Personal Access Token.`);
+                error.code = 'RATE_LIMIT';
+                error.message = `GitHub API rate limit exceeded. Try again after ${resetTime.toLocaleTimeString()} or add a Personal Access Token.`;
             } else {
                 // This is likely a permissions issue
+                error.code = 'FORBIDDEN';
                 if (!this.GITHUB_TOKEN) {
-                    return new Error(`GitHub API access forbidden (403). A GitHub token is required for this operation.`);
+                    error.message = `GitHub API access forbidden (403). A GitHub token is required for this operation.`;
                 } else {
-                    return new Error(`GitHub API access forbidden (403). Check that your token has the correct permissions (gist scope).`);
+                    error.message = `GitHub API access forbidden (403). Check that your token has the correct permissions (gist scope).`;
                 }
             }
         } else if (response.status === 404) {
-            return new Error(`Gist not found (404). Check your Gist ID or create a new Gist.`);
+            error.code = 'NOT_FOUND';
+            error.message = `Gist not found (404). Check your Gist ID or create a new Gist.`;
         } else if (response.status === 401) {
-            return new Error(`GitHub authentication failed (401). Your token may be invalid or expired.`);
+            error.code = 'UNAUTHORIZED';
+            error.message = `GitHub authentication failed (401). Your token may be invalid or expired.`;
         } else {
-            return new Error(`GitHub API error during ${operation}: ${response.status} ${response.statusText}`);
+            error.code = 'API_ERROR';
+            error.message = `GitHub API error during ${operation}: ${response.status} ${response.statusText}`;
         }
+        
+        return error;
     }
     
     // New method to sync data from Gist to localStorage
@@ -1226,7 +1451,7 @@ class StorageService {
                     const data = await createResponse.json();
                     // Update the Gist ID to the newly created one
                     this.GIST_ID = data.id;
-                    localStorage.setItem('gistId', data.id);
+                    localStorage.setItem('gist-id', data.id);
                     console.log('Created new Gist with ID:', data.id);
                     
                     // Update the Gist ID in the settings panel if open
@@ -1476,13 +1701,13 @@ class StorageService {
     setGistId(gistId) {
         if (gistId && gistId.trim() !== '') {
             this.GIST_ID = gistId.trim();
-            localStorage.setItem('gistId', this.GIST_ID);
-            this.STORAGE_MODE = 'GIST';
+            localStorage.setItem('gist-id', this.GIST_ID);
+            this.STORAGE_MODE = 'gist';
             console.log(`Storage mode set to gist with ID: ${this.GIST_ID}`);
         } else {
             this.GIST_ID = null;
-            localStorage.removeItem('gistId');
-            this.STORAGE_MODE = 'LOCAL';
+            localStorage.removeItem('gist-id');
+            this.STORAGE_MODE = 'local';
             console.log('Storage mode set to local (no Gist ID)');
         }
     }
@@ -1494,13 +1719,35 @@ class StorageService {
     setGitHubToken(token) {
         if (token && token.trim() !== '') {
             this.GITHUB_TOKEN = token.trim();
-            localStorage.setItem('githubToken', this.GITHUB_TOKEN);
+            localStorage.setItem('github-token', this.GITHUB_TOKEN);
             console.log('GitHub token set for storage service');
         } else {
             this.GITHUB_TOKEN = null;
+            localStorage.removeItem('github-token');
             localStorage.removeItem('githubToken');
             console.log('GitHub token removed from storage service');
         }
+    }
+
+    // Add a helper method for checking service availability
+    isAvailable() {
+        // Service is available if it's initialized without critical errors
+        // or if it's using local storage mode (which always works)
+        return this._initialized || this.STORAGE_MODE === 'local';
+    }
+
+    // Add a method to get detailed status
+    getServiceStatus() {
+        return {
+            initialized: this._initialized,
+            mode: this.STORAGE_MODE,
+            hasError: !!this.initializationError,
+            error: this.initializationError,
+            gistId: this.GIST_ID,
+            hasToken: !!this.GITHUB_TOKEN,
+            tokenValid: this._tokenValid,
+            lastSync: this.SYNC_TIMESTAMP
+        };
     }
 }
 
