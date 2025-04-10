@@ -1,5 +1,5 @@
 // Music Player App
-
+(function() {
 // Add API service functions at the top of the file
 const API_URL = 'http://localhost:3000/api';
 
@@ -2491,3 +2491,6 @@ function renderPlaylist() {
     // Set up drag and drop functionality
     setupDragAndDrop();
 }
+
+// Close the module/script
+})();
