@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TildeSoundArt Player - Upload Tracks</title>
+    <link rel="stylesheet" href="css/normalize.css">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/upload.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="header-logo">
+                <img src="assets/images/Tilde_Logo.png" alt="Tilde Logo" class="togg-logo">
+            </div>
+            <div class="header-divider"></div>
+            <nav>
+                <ul>
+                    <li><a href="index.html">Player</a></li>
+                    <li><a href="upload.html" class="active">Upload Tracks</a></li>
+                </ul>
+            </nav>
+        </header>
+        
+        <main>
+            <div class="upload-container">
+                <h2>Upload Tracks</h2>
+                <div class="upload-area" id="upload-area">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>Drag and drop audio files here or click to browse</p>
+                    <input type="file" id="file-input" accept="audio/*" multiple hidden>
+                </div>
+                <div class="upload-progress" id="upload-progress-container">
+                    <!-- Upload progress will appear here -->
+                </div>
+            </div>
+            
+            <div class="pending-tracks-container">
+                <h2>Pending Tracks</h2>
+                <div class="track-tagging-area">
+                    <div class="pending-tracks-list" id="pending-tracks">
+                        <!-- Pending tracks will be loaded here -->
+                        <p class="empty-message">No tracks uploaded yet. Upload tracks to get started.</p>
+                    </div>
+                    
+                    <div class="tagging-section">
+                        <h3>Tag Selected Track</h3>
+                        
+                        <!-- Audio Preview Section -->
+                        <div class="track-preview">
+                            <div class="preview-controls">
+                                <button id="preview-play-btn" class="preview-btn" disabled>
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                <div class="preview-progress-container">
+                                    <div class="preview-progress-bar">
+                                        <div class="preview-progress" id="preview-progress"></div>
+                                    </div>
+                                    <div class="preview-time">
+                                        <span id="preview-current-time">0:00</span> / <span id="preview-duration">0:00</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="track-info-editor">
+                            <div class="form-group">
+                                <label for="track-title">Track Title</label>
+                                <input type="text" id="track-title" placeholder="Enter track title">
+                            </div>
+                            <div class="form-group">
+                                <label for="track-artist">Artist</label>
+                                <input type="text" id="track-artist" placeholder="Enter artist name">
+                            </div>
+                        </div>
+                        
+                        <div class="tag-selection">
+                            <div class="mood-tags">
+                                <h4>Mood Tags</h4>
+                                <div class="tag-checkboxes">
+                                    <label><input type="checkbox" value="happy" name="mood"> Happy</label>
+                                    <label><input type="checkbox" value="chill" name="mood"> Chill</label>
+                                    <label><input type="checkbox" value="energetic" name="mood"> Energetic</label>
+                                    <label><input type="checkbox" value="sad" name="mood"> Sad</label>
+                                    <label><input type="checkbox" value="focus" name="mood"> Focus</label>
+                                    <label><input type="checkbox" value="relaxed" name="mood"> Relaxed</label>
+                                    <label><input type="checkbox" value="intense" name="mood"> Intense</label>
+                                    <label><input type="checkbox" value="romantic" name="mood"> Romantic</label>
+                                </div>
+                            </div>
+                            
+                            <div class="genre-tags">
+                                <h4>Genre Tags</h4>
+                                <div class="tag-checkboxes">
+                                    <label><input type="checkbox" value="pop" name="genre"> Pop</label>
+                                    <label><input type="checkbox" value="rock" name="genre"> Rock</label>
+                                    <label><input type="checkbox" value="electronic" name="genre"> Electronic</label>
+                                    <label><input type="checkbox" value="jazz" name="genre"> Jazz</label>
+                                    <label><input type="checkbox" value="classical" name="genre"> Classical</label>
+                                    <label><input type="checkbox" value="hiphop" name="genre"> Hip Hop</label>
+                                    <label><input type="checkbox" value="ambient" name="genre"> Ambient</label>
+                                    <label><input type="checkbox" value="folk" name="genre"> Folk</label>
+                                </div>
+                            </div>
+                            
+                            <div class="duration-selection">
+                                <h4>Duration</h4>
+                                <div class="duration-radio">
+                                    <label><input type="radio" value="short" name="duration" checked> 15 sec</label>
+                                    <label><input type="radio" value="medium" name="duration"> 30 sec</label>
+                                    <label><input type="radio" value="long" name="duration"> 60 sec</label>
+                                    <label><input type="radio" value="extended" name="duration"> 60+ sec</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="action-buttons">
+                            <button id="save-tags-btn" class="primary-btn" disabled>Save Tags</button>
+                            <button id="approve-track-btn" class="primary-btn" disabled>Approve Track</button>
+                            <button id="delete-track-btn" class="danger-btn" disabled>Delete Track</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="approved-tracks-container">
+                <h2>Approved Tracks</h2>
+                <div class="approved-tracks-list" id="approved-tracks">
+                    <!-- Approved tracks will be displayed here -->
+                    <p class="empty-message">No approved tracks yet. Tag and approve tracks to see them here.</p>
+                </div>
+                <button id="apply-to-player-btn" class="primary-btn" title="Save these tracks to the player and make them available in the main player page. This process may take some time for large audio files.">Apply Tracks to Player Page</button>
+                <p class="help-text">
+                    <strong>Important:</strong> To make tracks play correctly on the player page, you need to:
+                    <br>1. Click "Apply Tracks to Player Page"
+                    <br>2. Download each track using the <i class="fas fa-download"></i> button
+                    <br>3. Save each file with its EXACT filename to the @audio directory in your project folder
+                    <br>4. Go to the player page to listen to your tracks
+                </p>
+            </div>
+        </main>
+        
+        <footer>
+            <p>&copy; 2025 TildeSoundArt Player</p>
+        </footer>
+    </div>
+
+    <!-- Hidden audio element for preview -->
+    <audio id="preview-audio" hidden></audio>
+    
+    <script src="js/common.js"></script>
+    <script src="js/upload.js"></script>
+</body>
+</html> 
