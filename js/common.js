@@ -19,18 +19,42 @@ function getAudioFilePath(filename) {
 
 // Helper function to extract just the filename from an @audio/ path
 function getFilenameFromPath(path) {
-    if (path && path.startsWith('@audio/')) {
-        return path.substring(7); // Remove the '@audio/' prefix
-    }
-    return path;
+    return path.split('/').pop();
 }
 
 // Convert relative @audio/ path to absolute URL
 function convertAudioPathToUrl(path) {
-    if (path && path.startsWith('@audio/')) {
-        const filename = getFilenameFromPath(path);
-        const basePath = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
-        return basePath + '@audio/' + filename;
+    // Remove the @audio/ prefix if present
+    const filename = path.replace(/^@audio\//, '');
+    
+    // Check if we're running on GitHub Pages
+    if (window.location.hostname.includes('github.io')) {
+        // Use the GitHub Pages URL structure
+        const repoName = 'Tildeplayer'; // Your repository name
+        return `/${repoName}/@audio/${filename}`;
+    } else {
+        // Local development - use relative path
+        return `/@audio/${filename}`;
     }
-    return path;
+}
+
+// Format file size
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Show notification
+function showNotification(message, duration = 3000) {
+    const notification = document.createElement('div');
+    notification.className = 'notification';
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, duration);
 } 

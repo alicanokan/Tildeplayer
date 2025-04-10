@@ -4,6 +4,26 @@
 let tracksData = [
     {
         id: 1,
+        title: "ID Music 2 - Technology F1",
+        artist: "TildeSoundArt",
+        src: "@audio/ID Music 2 - (17c-Technology_F1).mp3",
+        albumArt: "assets/images/Tilde_Logo.png",
+        mood: ["energetic", "intense"],
+        genre: ["electronic", "rock"],
+        duration: "medium"
+    },
+    {
+        id: 2,
+        title: "ID Music 7 - TOGG ID MEDIA Funk",
+        artist: "TildeSoundArt",
+        src: "@audio/ID Music 7 - (TOGG_ID MEDIA _Funk).mp3",
+        albumArt: "assets/images/Tilde_Logo.png",
+        mood: ["energetic", "happy"],
+        genre: ["funk", "electronic"],
+        duration: "medium"
+    },
+    {
+        id: 3,
         title: "Chill Summer Vibes",
         artist: "SoundScape",
         src: "assets/audio/sample1.mp3", // Will be replaced with embedded audio if missing
@@ -13,7 +33,7 @@ let tracksData = [
         duration: "short" // 15 sec
     },
     {
-        id: 2,
+        id: 4,
         title: "Urban Dreams",
         artist: "City Nights",
         src: "assets/audio/sample2.mp3", // Will be replaced with embedded audio if missing
@@ -23,7 +43,7 @@ let tracksData = [
         duration: "medium" // 30 sec
     },
     {
-        id: 3,
+        id: 5,
         title: "Tranquil Mind",
         artist: "Oceanic Waves",
         src: "assets/audio/sample3.mp3", // Will be replaced with embedded audio if missing
@@ -33,7 +53,7 @@ let tracksData = [
         duration: "short" // 15 sec
     },
     {
-        id: 4,
+        id: 6,
         title: "Retro Funk",
         artist: "Groove Masters",
         src: "assets/audio/sample4.mp3", // Will be replaced with embedded audio if missing
@@ -43,7 +63,7 @@ let tracksData = [
         duration: "medium" // 15-30 min
     },
     {
-        id: 5,
+        id: 7,
         title: "Melancholic Rain",
         artist: "Blue Notes",
         src: "assets/audio/sample5.mp3", // Will be replaced with embedded audio if missing
