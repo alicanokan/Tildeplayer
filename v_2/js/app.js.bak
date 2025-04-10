@@ -158,7 +158,8 @@ function loadUploadedTracks() {
 }
 
 // Helper function to scan assets directory for track files
-// Function updated to use async implementation below
+function scanAssetsDirectoryForTracks() {
+// Modify loadUploadedTracks to use storage service and scan the assets/tracks directory
 async function loadUploadedTracks() {
     console.log('Loading tracks from storage and directory...');
     let tracksLoaded = false;
