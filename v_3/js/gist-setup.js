@@ -139,6 +139,23 @@
             .error-details.visible {
                 display: block;
             }
+            
+            .token-validation-btn {
+                font-size: 12px;
+                color: #2196F3;
+                background: none;
+                border: none;
+                cursor: pointer;
+                padding: 0;
+                text-decoration: underline;
+                margin-top: 3px;
+            }
+            
+            .access-scope-list {
+                font-size: 11px;
+                margin-top: 5px;
+                padding-left: 15px;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -174,7 +191,7 @@
                     ${savedGistId ? 'Gist ID configured' : 'No Gist ID configured'}
                 </div>
                 
-                <label for="github-token-input">GitHub Personal Access Token (required for private Gists):</label>
+                <label for="github-token-input">GitHub Personal Access Token (required for private Gists or write operations):</label>
                 <input 
                     type="password" 
                     id="github-token-input" 
@@ -184,6 +201,8 @@
                 <div class="token-status ${savedGithubToken ? 'valid' : ''}">
                     ${savedGithubToken ? 'Token configured' : 'Required for private Gists or to avoid rate limits'}
                 </div>
+                
+                <button type="button" class="token-validation-btn" id="validate-token-btn">Validate token permissions</button>
                 
                 <div class="error-details" id="error-details"></div>
                 
@@ -261,6 +280,18 @@
             testGistConnection(gistId);
         });
         
+        // Validate token button
+        setupContainer.querySelector('#validate-token-btn').addEventListener('click', () => {
+            const token = document.getElementById('github-token-input').value.trim();
+            
+            if (!token) {
+                showErrorDetails('Please enter a GitHub token to validate');
+                return;
+            }
+            
+            validateGitHubToken(token);
+        });
+        
         setupContainer.querySelector('.gist-help-link').addEventListener('click', () => {
             window.open('https://docs.github.com/en/github/writing-on-github/editing-and-sharing-content-with-gists/creating-gists', '_blank');
         });
@@ -299,6 +330,98 @@
         }
     }
     
+    // Display HTML in error details
+    function showErrorDetailsHTML(htmlContent) {
+        const errorElement = document.getElementById('error-details');
+        if (errorElement) {
+            if (htmlContent) {
+                errorElement.innerHTML = htmlContent;
+                errorElement.classList.add('visible');
+            } else {
+                errorElement.innerHTML = '';
+                errorElement.classList.remove('visible');
+            }
+        }
+    }
+    
+    // Validate GitHub token and check its permissions
+    function validateGitHubToken(token) {
+        showErrorDetails('Validating token...');
+        
+        const headers = new Headers({
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': `token ${token}`
+        });
+        
+        // First check if the token is valid at all
+        fetch('https://api.github.com/user', { headers })
+            .then(response => {
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('Invalid token - authentication failed. Please generate a new token.');
+                    } else {
+                        throw new Error(`Token validation failed: HTTP status ${response.status}`);
+                    }
+                }
+                return response.json();
+            })
+            .then(userData => {
+                console.log('Token is valid for user:', userData.login);
+                
+                // Now check token scopes
+                return fetch('https://api.github.com/gists', { headers });
+            })
+            .then(response => {
+                // Check the scopes in the response headers
+                const scopes = response.headers.get('X-OAuth-Scopes');
+                
+                if (!response.ok) {
+                    throw new Error(`Gist access check failed: HTTP status ${response.status}`);
+                }
+                
+                let hasGistScope = false;
+                if (scopes) {
+                    hasGistScope = scopes.includes('gist') || scopes.includes('repo');
+                }
+                
+                if (hasGistScope) {
+                    showErrorDetailsHTML(`
+                        <span style="color: #4CAF50;">✓ Token is valid and has the required Gist permissions!</span>
+                        <div>Scopes: ${scopes || 'None'}</div>
+                    `);
+                    
+                    // Update the token status
+                    const tokenStatus = document.querySelector('.token-status');
+                    if (tokenStatus) {
+                        tokenStatus.className = 'token-status valid';
+                        tokenStatus.textContent = 'Token valid with Gist scope';
+                    }
+                } else {
+                    showErrorDetailsHTML(`
+                        <span style="color: #f44336;">⚠️ Token is valid but does not have Gist scope permissions.</span>
+                        <div>Current scopes: ${scopes || 'None'}</div>
+                        <div>To fix this, create a new token with these permissions:</div>
+                        <ul class="access-scope-list">
+                            <li>gist (read and write)</li>
+                        </ul>
+                    `);
+                }
+                
+                return response.json();
+            })
+            .catch(error => {
+                console.error('Token validation error:', error);
+                showErrorDetails(`Token validation failed: ${error.message}`);
+                
+                // Update the token status to invalid
+                const tokenStatus = document.querySelector('.token-status');
+                if (tokenStatus) {
+                    tokenStatus.className = 'token-status invalid';
+                    tokenStatus.textContent = 'Invalid token';
+                }
+            });
+    }
+    
     // Test connection to the Gist
     function testGistConnection(gistId) {
         updateGistStatus(true, 'Testing connection...');
@@ -318,8 +441,18 @@
         fetch(`https://api.github.com/gists/${gistId}`, { headers })
             .then(response => {
                 if (!response.ok) {
+                    // Check for rate limit info
+                    const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
+                    const rateLimitReset = response.headers.get('X-RateLimit-Reset');
+                    
                     if (response.status === 403) {
-                        throw new Error('Forbidden: GitHub API rate limit or authentication issue');
+                        // Is it a rate limit issue?
+                        if (rateLimitRemaining === '0') {
+                            const resetDate = new Date(rateLimitReset * 1000);
+                            throw new Error(`Rate limit exceeded. Resets at ${resetDate.toLocaleTimeString()}`);
+                        } else {
+                            throw new Error('Forbidden: GitHub API access denied (403)');
+                        }
                     } else if (response.status === 404) {
                         throw new Error('Gist not found: Check your Gist ID or make sure the Gist is public');
                     } else if (response.status === 401) {
@@ -349,16 +482,55 @@
                 console.error('Error testing Gist connection:', error);
                 updateGistStatus(false, `Connection failed: ${error.message}`);
                 
-                // Show more detailed error information
+                // Show more detailed error information based on the error type
                 if (error.message.includes('Forbidden')) {
-                    showErrorDetails('A 403 Forbidden error typically means one of three things:\n' +
-                        '1. You are trying to access a private Gist without a token\n' +
-                        '2. You have exceeded GitHub API rate limits (provide a token to increase limits)\n' +
-                        '3. Your token does not have the required permissions (needs Gist read/write)');
+                    showErrorDetailsHTML(`
+                        <strong>403 Forbidden Error</strong>
+                        <p>This error typically means one of three things:</p>
+                        <ol>
+                            <li>You are trying to access a private Gist without a token</li>
+                            <li>You have exceeded GitHub API rate limits</li>
+                            <li>Your token does not have the required permissions</li>
+                        </ol>
+                        <p><strong>Solution:</strong></p>
+                        <ul>
+                            <li>Make sure you've added a GitHub token with 'gist' scope</li>
+                            <li>Click "Validate token permissions" to verify your token</li>
+                            <li>If using a private Gist, ensure your token belongs to the Gist owner</li>
+                        </ul>
+                    `);
                 } else if (error.message.includes('Gist not found')) {
-                    showErrorDetails('Make sure your Gist ID is correct. If this is a private Gist, you must provide a valid GitHub token with Gist access permissions.');
+                    showErrorDetailsHTML(`
+                        <strong>404 Not Found Error</strong>
+                        <p>The Gist ID is incorrect or the Gist doesn't exist.</p>
+                        <p><strong>Solution:</strong></p>
+                        <ul>
+                            <li>Verify your Gist ID is correct</li>
+                            <li>If this is a private Gist, ensure you're using a valid token</li>
+                            <li>Check if the Gist exists by visiting:<br>https://gist.github.com/${gistId}</li>
+                        </ul>
+                    `);
                 } else if (error.message.includes('Unauthorized')) {
-                    showErrorDetails('Your GitHub token is invalid or expired. Please generate a new token with Gist scope permissions.');
+                    showErrorDetailsHTML(`
+                        <strong>401 Unauthorized Error</strong>
+                        <p>Your GitHub token is invalid or expired.</p>
+                        <p><strong>Solution:</strong></p>
+                        <ul>
+                            <li>Generate a new token with Gist scope permissions</li>
+                            <li>Make sure you're copying the entire token value</li>
+                            <li>Click "How to create a GitHub Personal Access Token" for help</li>
+                        </ul>
+                    `);
+                } else if (error.message.includes('Rate limit exceeded')) {
+                    showErrorDetailsHTML(`
+                        <strong>Rate Limit Exceeded</strong>
+                        <p>${error.message}</p>
+                        <p><strong>Solution:</strong></p>
+                        <ul>
+                            <li>Add a GitHub token to increase your rate limit</li>
+                            <li>Wait until the rate limit resets</li>
+                        </ul>
+                    `);
                 }
             });
     }
@@ -391,11 +563,29 @@
                     console.error('Error syncing with new Gist ID:', error);
                     updateGistStatus(false, `Error syncing: ${error.message || 'Unknown error'}`);
                     
-                    // Show detailed error information
+                    // Check if it's a 403 error and show more detailed information
                     if (error.message && error.message.includes('403')) {
-                        showErrorDetails('Authentication error: If your Gist is private, you need to provide a valid GitHub token with Gist access permissions.');
+                        showErrorDetailsHTML(`
+                            <strong>403 Forbidden Error during sync</strong>
+                            <p>The GitHub API denied access to this Gist. This might be because:</p>
+                            <ol>
+                                <li>This is a private Gist and you need a token with permissions</li>
+                                <li>Your token doesn't have write access to this Gist</li> 
+                                <li>You've hit GitHub API rate limits</li>
+                            </ol>
+                            <p><strong>Try these solutions:</strong></p>
+                            <ol>
+                                <li>Click "Validate token permissions" to check your token</li>
+                                <li>Make sure your token has "gist" scope</li>
+                                <li>If using someone else's Gist, create your own copy instead</li>
+                            </ol>
+                        `);
                     } else if (error.message && error.message.includes('404')) {
-                        showErrorDetails('Gist not found: Check that your Gist ID is correct and the Gist exists.');
+                        showErrorDetailsHTML(`
+                            <strong>404 Not Found Error</strong>
+                            <p>The system couldn't find the Gist with ID: <code>${gistId}</code></p>
+                            <p>Double-check your Gist ID and make sure it exists.</p>
+                        `);
                     }
                 });
         } else {
