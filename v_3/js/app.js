@@ -702,7 +702,8 @@ let currentTrack = null;
 let currentTrackIndex = 0;
 let isPlaying = false;
 let playlist = [];
-let filteredTracks = []; // Will be populated in initPlayer
+// Will be populated in initPlayer - reusing the variable declared at line 27
+filteredTracks = []; 
 
 // Initialize player with embedded audio only when needed as fallback
 function initializeWithEmbeddedAudio() {
