@@ -1026,4 +1026,54 @@ footer {
 .volume-slider {
     width: 100px;
     cursor: pointer;
+}
+
+.upload-drop-zone {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    margin: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.upload-drop-zone.dragover {
+    border-color: #4CAF50;
+    background: rgba(76, 175, 80, 0.1);
+}
+
+.upload-icon {
+    font-size: 2em;
+    color: #ccc;
+    margin-bottom: 10px;
+}
+
+.upload-drop-zone p {
+    margin: 0;
+    color: #ccc;
+}
+
+.upload-drop-zone:hover {
+    border-color: #4CAF50;
+    background: rgba(76, 175, 80, 0.05);
+}
+
+/* Upload progress indicator */
+.upload-progress {
+    width: 100%;
+    height: 4px;
+    background: #ddd;
+    border-radius: 2px;
+    margin-top: 10px;
+    overflow: hidden;
+    display: none;
+}
+
+.upload-progress-bar {
+    height: 100%;
+    background: #4CAF50;
+    width: 0;
+    transition: width 0.3s ease;
 } 

@@ -12,21 +12,37 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Configure multer for file uploads
+// Configure multer for handling file uploads
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const dir = path.join(__dirname, '@audio');
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+    destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, 'assets/tracks');
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
         }
-        cb(null, dir);
+        cb(null, uploadDir);
     },
-    filename: function (req, file, cb) {
-        cb(null, file.originalname);
+    filename: (req, file, cb) => {
+        // Keep original filename but ensure it's safe
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9-_. ]/g, '');
+        cb(null, safeName);
     }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        // Accept only audio files
+        if (file.mimetype.startsWith('audio/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only audio files are allowed'));
+        }
+    },
+    limits: {
+        fileSize: 50 * 1024 * 1024 // 50MB limit
+    }
+});
 
 // Track data storage
 const TRACKS_FILE = path.join(__dirname, 'data', 'tracks.json');
@@ -106,6 +122,30 @@ app.delete('/api/tracks/:id', (req, res) => {
     saveTracks();
     
     res.json({ message: 'Track deleted successfully' });
+});
+
+// Handle file uploads
+app.post('/upload', upload.single('audio'), (req, res) => {
+    try {
+        if (!req.file) {
+            throw new Error('No file uploaded');
+        }
+
+        // Return success response with file info
+        res.json({
+            success: true,
+            file: {
+                filename: req.file.filename,
+                path: `assets/tracks/${req.file.filename}`,
+                size: req.file.size
+            }
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 app.listen(port, () => {
