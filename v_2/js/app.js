@@ -3,8 +3,11 @@
 // Add API service functions at the top of the file
 const API_URL = 'http://localhost:3000/api';
 
-// Import storage service
-import storageService from './storage-service.js';
+// Constants
+const MAX_RETRY_ATTEMPTS = 3;
+
+// The storageService is now globally available from storage-service.js
+// import storageService from './storage-service.js';
 
 // API Service functions
 const api = {
@@ -202,10 +205,11 @@ const genreButtons = document.querySelectorAll('.genre-btn');
 const durationButtons = document.querySelectorAll('.duration-btn');
 
 // Audio Object
-const audio = new Audio();
+let audio = new Audio();
 
 // App State
 let currentTrack = null;
+let currentTrackIndex = 0;
 let isPlaying = false;
 let playlist = [];
 let filteredTracks = []; // Will be populated in initPlayer
@@ -221,431 +225,282 @@ function initializeWithEmbeddedAudio() {
     });
 }
 
-// Initialize the player
-async function initPlayer() {
+/**
+ * Initialize the player
+ */
+function initPlayer() {
     console.log('Initializing player...');
+
+    // Get DOM references
+    let playerAudioElement = document.getElementById('audio');
+    let playerProgressSlider = document.querySelector('.progress-slider');
+    let playerVolumeSlider = document.querySelector('.volume-slider');
+    let playerCurrentTimeElement = document.querySelector('.current-time');
+    let playerDurationElement = document.querySelector('.duration');
     
-    // Create audio element
-    audio = new Audio();
+    // Check if audio element exists
+    if (!playerAudioElement) {
+        console.error('Audio element not found');
+        return;
+    }
     
-    // Set up audio event listeners
-    audio.addEventListener('timeupdate', updateProgress);
-    audio.addEventListener('loadedmetadata', updateDuration);
-    audio.addEventListener('ended', playNext);
-    audio.addEventListener('error', handleAudioError);
+    // Connect our audio variable to the audio element
+    audio = playerAudioElement;
     
     // Set initial volume
-    audio.volume = volumeSlider.value;
-    
-    // Create filtered tracks array
-    filteredTracks = [...tracksData];
-    
-    // Try to load saved playlist
-    await loadPlaylist();
-    
-    // Render tracks and playlist
-    renderTracks(filteredTracks);
-    renderPlaylist();
-    
-    // Load first track
-    if (filteredTracks.length > 0) {
-        loadTrack(filteredTracks[0]);
+    if (playerVolumeSlider) {
+        const savedVolume = parseFloat(localStorage.getItem('volume') || '0.7');
+        audio.volume = savedVolume;
+        playerVolumeSlider.value = savedVolume;
     }
     
-    console.log('Player initialized with', filteredTracks.length, 'tracks and', playlist.length, 'playlist items');
-}
-
-// Handle audio loading errors
-function handleAudioError(e) {
-    console.error('Audio error:', e);
-    
-    // Check if we have a fallback for this track
-    if (currentTrack && currentTrack.fallbackSrc) {
-        console.log('Using fallback audio for track:', currentTrack.title);
-        audio.src = currentTrack.fallbackSrc;
-        audio.load();
-        showFallbackIndicator(`Using embedded audio for "${currentTrack.title}"`);
-    } else {
-        // Try to find a completely different track as fallback
-        console.log('Attempting to find fallback track');
-        const fallbackTrack = findFallbackTrack();
+    // Add event listeners
+    if (audio) {
+        // Playback events
+        audio.addEventListener('timeupdate', updateProgress);
+        audio.addEventListener('ended', handleTrackEnd);
+        audio.addEventListener('play', () => updatePlayPauseState(true));
+        audio.addEventListener('pause', () => updatePlayPauseState(false));
+        audio.addEventListener('error', handleAudioError);
         
-        if (fallbackTrack) {
-            console.log('Fallback found, loading alternative track');
-            loadTrack(fallbackTrack);
-            showFallbackIndicator('Audio file not found. Playing a fallback track.');
+        // Loading events
+        audio.addEventListener('loadstart', () => console.log('Audio loading started'));
+        audio.addEventListener('canplay', () => {
+            console.log('Audio can start playing');
+            updateDuration();
+        });
+        audio.addEventListener('waiting', () => console.log('Audio buffering...'));
+    }
+
+    // Progress slider
+    if (playerProgressSlider) {
+        playerProgressSlider.addEventListener('input', seekTrack);
+        playerProgressSlider.addEventListener('change', seekTrack);
+    }
+
+    // Volume slider 
+    if (playerVolumeSlider) {
+        playerVolumeSlider.addEventListener('input', () => {
+            setVolume(parseFloat(playerVolumeSlider.value));
+        });
+    }
+
+    // Play/Pause button
+    const playPauseBtn = document.querySelector('.play-pause-btn');
+    if (playPauseBtn) {
+        playPauseBtn.addEventListener('click', togglePlayPause);
+    }
+
+    // Next/Previous buttons
+    const prevBtn = document.querySelector('.prev-btn');
+    const nextBtn = document.querySelector('.next-btn');
+    
+    if (prevBtn) prevBtn.addEventListener('click', playPreviousTrack);
+    if (nextBtn) nextBtn.addEventListener('click', playNextTrack);
+    
+    // Check for any currently playing track
+    const lastPlayedTrackId = localStorage.getItem('currentTrackId');
+    const lastPlayedPosition = parseFloat(localStorage.getItem('currentTrackPosition') || '0');
+    
+    if (lastPlayedTrackId) {
+        // Find the track in our data
+        const trackIndex = tracksData.findIndex(track => track.id === lastPlayedTrackId);
+        if (trackIndex !== -1) {
+            console.log('Resuming last played track:', tracksData[trackIndex].title);
+            loadTrack(trackIndex);
+            
+            // Set the playback position
+            audio.currentTime = lastPlayedPosition;
         } else {
-            console.error('No fallback track available');
-            showFallbackIndicator('Audio file not found and no fallbacks available.');
+            // If track not found, load the first track
+            if (tracksData.length > 0) {
+                loadTrack(0);
+            }
         }
+    } else if (tracksData.length > 0) {
+        // Load the first track if no last played track
+        loadTrack(0);
     }
+    
+    // Update track list UI
+    renderTrackList();
+    
+    console.log('Player initialization complete');
 }
 
-// Add upload page link to the header
-function addUploadPageLink() {
-    // Check if we already have a navigation
-    let nav = document.querySelector('header nav');
+/**
+ * Handles the end of track playback, moves to next track
+ */
+function handleTrackEnd() {
+    console.log('Track ended, playing next track');
+    playNextTrack();
+}
+
+// Display retry attempt information to the user
+function showRetryAttempt(track, attemptNumber, maxRetries) {
+    const message = `Retry ${attemptNumber}/${maxRetries}: Attempting to load "${track.title}"`;
+    console.log(message);
     
-    if (!nav) {
-        // Create new navigation
-        nav = document.createElement('nav');
-        const ul = document.createElement('ul');
+    const playerNotification = document.getElementById('player-notification');
+    if (playerNotification) {
+        playerNotification.textContent = message;
+        playerNotification.classList.add('show');
         
-        // Create player link
-        const playerLi = document.createElement('li');
-        const playerLink = document.createElement('a');
-        playerLink.href = 'index.html';
-        playerLink.textContent = 'Player';
-        playerLink.classList.add('active');
-        playerLi.appendChild(playerLink);
-        
-        // Create upload link with password protection
-        const uploadLi = document.createElement('li');
-        const uploadLink = document.createElement('a');
-        uploadLink.href = 'javascript:void(0)'; // Change to JavaScript void to intercept the click
-        uploadLink.textContent = 'Upload Tracks';
-        uploadLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            
-            // Prompt for password
-            const password = prompt('Please enter password to access upload page:');
-            
-            // Check if password is correct (tilde)
-            if (password === 'tilde') {
-                // Password correct, navigate to upload page
-                window.location.href = 'upload.html';
-            } else if (password !== null) {
-                // Wrong password
-                alert('Incorrect password. Access denied.');
-            }
-            // If password is null (user clicked Cancel), do nothing
-        });
-        uploadLi.appendChild(uploadLink);
-        
-        // Append to DOM
-        ul.appendChild(playerLi);
-        ul.appendChild(uploadLi);
-        nav.appendChild(ul);
-        document.querySelector('header').appendChild(nav);
+        // Hide the notification after 3 seconds
+        setTimeout(() => {
+            playerNotification.classList.remove('show');
+        }, 3000);
     } else {
-        // Navigation already exists, just update the upload link
-        const uploadLink = document.querySelector('header nav a[href="upload.html"]');
-        if (uploadLink) {
-            uploadLink.href = 'javascript:void(0)';
-            uploadLink.addEventListener('click', function(e) {
-                e.preventDefault();
-                
-                // Prompt for password
-                const password = prompt('Please enter password to access upload page:');
-                
-                // Check if password is correct (tilde)
-                if (password === 'tilde') {
-                    // Password correct, navigate to upload page
-                    window.location.href = 'upload.html';
-                } else if (password !== null) {
-                    // Wrong password
-                    alert('Incorrect password. Access denied.');
+        // Create notification element if it doesn't exist
+        const notification = document.createElement('div');
+        notification.id = 'player-notification';
+        notification.className = 'player-notification show';
+        notification.textContent = message;
+        
+        document.body.appendChild(notification);
+        
+        // Add styles if they don't exist
+        if (!document.getElementById('player-notification-style')) {
+            const style = document.createElement('style');
+            style.id = 'player-notification-style';
+            style.textContent = `
+                .player-notification {
+                    position: fixed;
+                    bottom: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background-color: rgba(0, 0, 0, 0.8);
+                    color: white;
+                    padding: 10px 20px;
+                    border-radius: 30px;
+                    font-size: 14px;
+                    max-width: 80%;
+                    text-align: center;
+                    z-index: 1000;
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                    pointer-events: none;
                 }
-                // If password is null (user clicked Cancel), do nothing
-            });
-        }
-    }
-}
-
-// Setup password protection for the Upload Tracks link
-function setupUploadLinkPasswordProtection() {
-    const uploadLink = document.getElementById('upload-tracks-link');
-    if (uploadLink) {
-        uploadLink.addEventListener('click', function(e) {
-            e.preventDefault();
-            
-            // Prompt for password
-            const password = prompt('Please enter password to access upload page:');
-            
-            // Check if password is correct (tilde)
-            if (password === 'tilde') {
-                // Password correct, navigate to upload page
-                window.location.href = 'upload.html';
-            } else if (password !== null) {
-                // Wrong password
-                alert('Incorrect password. Access denied.');
-            }
-            // If password is null (user clicked Cancel), do nothing
-        });
-    }
-}
-
-// Render tracks in the catalog
-function renderTracks(tracks) {
-    tracksContainer.innerHTML = '';
-    
-    if (tracks.length === 0) {
-        tracksContainer.innerHTML = '<p class="no-tracks">No tracks match your filters.</p>';
-        return;
-    }
-    
-    tracks.forEach(track => {
-        const trackElement = document.createElement('div');
-        trackElement.classList.add('track-item');
-        trackElement.dataset.trackId = track.id;
-        
-        const trackInfo = document.createElement('div');
-        trackInfo.classList.add('track-info');
-        
-        // Convert duration code to readable text
-        let durationText = '';
-        switch(track.duration) {
-            case 'short':
-                durationText = '15 sec';
-                break;
-            case 'medium':
-                durationText = '30 sec';
-                break;
-            case 'long':
-                durationText = '60 sec';
-                break;
-            case 'extended':
-                durationText = '60+ sec';
-                break;
-            default:
-                durationText = 'Unknown';
-        }
-        
-        trackInfo.innerHTML = `
-            <h4>${track.title}</h4>
-            <p>${track.artist}</p>
-            <div class="track-tags">
-                ${track.mood.map(mood => `<span class="tag mood">${mood}</span>`).join('')}
-                ${track.genre.map(genre => `<span class="tag genre">${genre}</span>`).join('')}
-                <span class="tag duration">${durationText}</span>
-            </div>
-        `;
-        
-        const trackActions = document.createElement('div');
-        trackActions.classList.add('track-actions');
-        
-        trackActions.innerHTML = `
-            <button class="play-track-btn"><i class="fas fa-play"></i></button>
-            <button class="add-to-collection-btn"><i class="fas fa-plus"></i></button>
-        `;
-        
-        trackElement.appendChild(trackInfo);
-        trackElement.appendChild(trackActions);
-        tracksContainer.appendChild(trackElement);
-    });
-}
-
-// Render playlist items
-function renderPlaylist() {
-    playlistContainer.innerHTML = '';
-    
-    if (playlist.length === 0) {
-        playlistContainer.innerHTML = '<p class="empty-playlist">Your collection is empty. Add tracks from the catalog!</p>';
-        return;
-    }
-    
-    playlist.forEach((track, index) => {
-        const playlistItem = document.createElement('div');
-        playlistItem.classList.add('playlist-item');
-        playlistItem.draggable = true;
-        playlistItem.dataset.index = index;
-        
-        playlistItem.innerHTML = `
-            <div class="drag-handle"><i class="fas fa-grip-lines"></i></div>
-            <div class="playlist-item-info">
-                <h4>${track.title}</h4>
-                <p>${track.artist}</p>
-            </div>
-            <div class="playlist-item-actions">
-                <button class="remove-from-playlist-btn" data-index="${index}"><i class="fas fa-times"></i></button>
-            </div>
-        `;
-        
-        playlistContainer.appendChild(playlistItem);
-    });
-    
-    setupDragAndDrop();
-}
-
-// Set up all event listeners
-function setupEventListeners() {
-    // Player control buttons
-    playBtn.addEventListener('click', togglePlay);
-    nextBtn.addEventListener('click', playNext);
-    prevBtn.addEventListener('click', playPrevious);
-    
-    // Add to collection button in player controls
-    document.getElementById('add-to-collection-btn').addEventListener('click', function() {
-        if (currentTrack) {
-            addToPlaylist(currentTrack);
-            showNotification('Track added to collection');
-        }
-    });
-    
-    // Audio events
-    audio.addEventListener('timeupdate', updateProgress);
-    audio.addEventListener('ended', playNext);
-    audio.addEventListener('loadedmetadata', updateDuration);
-    
-    // Volume control
-    volumeSlider.addEventListener('input', updateVolume);
-    
-    // Filter buttons
-    moodButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            toggleFilterButton(btn, 'mood');
-            applyFilters();
-        });
-    });
-    
-    genreButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            toggleFilterButton(btn, 'genre');
-            applyFilters();
-        });
-    });
-    
-    // Duration filter buttons
-    durationButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            toggleFilterButton(btn, 'duration');
-            applyFilters();
-        });
-    });
-    
-    // Playlist actions
-    clearPlaylistBtn.addEventListener('click', clearPlaylist);
-    downloadPlaylistBtn.addEventListener('click', downloadPlaylist);
-    
-    // Track item actions
-    tracksContainer.addEventListener('click', function(e) {
-        if (!e.target.closest('.track-item')) return;
-        
-        const trackItem = e.target.closest('.track-item');
-        const trackId = parseInt(trackItem.dataset.trackId);
-        const track = filteredTracks.find(t => t.id === trackId);
-        
-        if (!track) {
-            console.error('Track not found with ID:', trackId);
-            return;
-        }
-        
-        if (e.target.closest('.play-track-btn')) {
-            if (currentTrack && currentTrack.id === track.id && isPlaying) {
-                pauseTrack();
-            } else {
-                loadTrack(track);
-                playTrack();
                 
-                // Scroll to the track after a short delay
-                setTimeout(scrollToCurrentTrack, 300);
-            }
-        } else if (e.target.closest('.add-to-collection-btn')) {
-            addToPlaylist(track);
-            showNotification('Track added to collection');
+                .player-notification.show {
+                    opacity: 1;
+                }
+            `;
+            document.head.appendChild(style);
         }
-    });
-    
-    // Playlist item actions
-    playlistContainer.addEventListener('click', function(e) {
-        if (e.target.closest('.remove-from-playlist-btn')) {
-            const index = parseInt(e.target.closest('.remove-from-playlist-btn').dataset.index);
-            removeFromPlaylist(index);
-        } else if (e.target.closest('.playlist-item')) {
-            const index = parseInt(e.target.closest('.playlist-item').dataset.index);
-            loadTrack(playlist[index]);
-            playTrack();
-        }
-    });
-    
-    // Progress bar click
-    document.querySelector('.progress-bar').addEventListener('click', function(e) {
-        const progressBarWidth = this.clientWidth;
-        const clickPosition = e.offsetX;
-        const seekTime = (clickPosition / progressBarWidth) * audio.duration;
-        audio.currentTime = seekTime;
-    });
+        
+        // Hide the notification after 3 seconds
+        setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+                if (document.body.contains(notification)) {
+                    document.body.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
 }
 
-// Find a fallback track to play when the current track fails
-function findFallbackTrack() {
-    // Look for a different track with a fallback source
-    for (const track of tracksData) {
-        if (track.id !== currentTrack?.id && track.fallbackSrc) {
-            return track;
-        }
+/**
+ * Handles audio playback errors by implementing retry logic and fallback
+ * to embedded audio when available
+ */
+function handleAudioError(error) {
+    const currentTrack = tracksData[currentTrackIndex];
+    
+    if (!currentTrack) {
+        console.error('Cannot handle audio error: No current track');
+        showNotification('Error playing track', 'error');
+        return;
     }
     
-    // If no fallback found, return the first track with a fallback source
-    for (const track of tracksData) {
-        if (track.fallbackSrc) {
-            return track;
-        }
+    console.error(`Error playing track "${currentTrack.title}":`, error);
+    
+    // Initialize retry count if it doesn't exist
+    if (typeof currentTrack.retryCount === 'undefined') {
+        currentTrack.retryCount = 0;
     }
     
-    // If all else fails, return the first track
-    return tracksData.length > 0 ? tracksData[0] : null;
-}
-
-// Load a track
-function loadTrack(track) {
-    console.log('Loading track:', track);
-    if (!track) return;
-    
-    currentTrack = track;
-    
-    // Update UI
-    trackTitle.textContent = track.title;
-    trackArtist.textContent = track.artist;
-    albumArt.src = track.albumArt || 'assets/images/Tilde_Logo.png';
-    
-    // Pause any current playback
-    audio.pause();
-    
-    // Reset progress
-    progressBar.style.width = '0%';
-    currentTimeEl.textContent = '0:00';
-    durationEl.textContent = '0:00';
-    
-    // Set audio source
-    // Check if the source is a file path (not a blob or data URI)
-    if (track.src && !track.src.startsWith('blob:') && !track.src.startsWith('data:')) {
-        // Try to load the actual file first
-        console.log('Attempting to load file:', track.src);
+    // Try again a few times before giving up
+    if (currentTrack.retryCount < MAX_RETRY_ATTEMPTS) {
+        currentTrack.retryCount++;
+        console.log(`Retry attempt ${currentTrack.retryCount} for track "${currentTrack.title}"`);
         
-        // Create a temporary audio element to test if the file exists
-        const tempAudio = new Audio();
-        tempAudio.src = track.src;
-        
-        // Set up error handler to use fallback if file not found
-        tempAudio.onerror = function() {
-            console.log(`File not found at ${track.src}, using fallback`);
-            if (track.fallbackSrc) {
-                audio.src = track.fallbackSrc;
-                console.log('Using fallback audio source');
-                showFallbackIndicator(`Using embedded audio for "${track.title}"`);
+        // Short delay before retrying
+        setTimeout(() => {
+            if (!currentTrack.usingFallback && currentTrack.embeddedAudio) {
+                // Try fallback to embedded audio if available
+                console.log(`Switching to embedded audio for "${currentTrack.title}"`);
+                currentTrack.usingFallback = true;
+                setAudioSource(currentTrack);
+                playTrack();
+            } else if (currentTrack.filePath) {
+                // Just retry with the same source
+                console.log(`Retrying same source for "${currentTrack.title}"`);
+                setAudioSource(currentTrack);
+                playTrack();
             } else {
-                console.error('No fallback audio source available');
-                showFallbackIndicator('Audio file not found and no fallback available');
+                showNotification('Unable to play track', 'error');
+                console.error('No valid audio source available for track');
             }
-        };
-        
-        // Set up load handler to use the real file if found
-        tempAudio.onloadeddata = function() {
-            console.log(`File found at ${track.src}, using real file`);
-            audio.src = track.src;
-        };
-        
-        // Start loading the file
-        tempAudio.load();
+        }, 1000);
     } else {
-        // Already using a blob, data URI, or embedded audio
-        console.log('Using external URL:', track.src);
-        audio.src = track.src;
+        // Give up after MAX_RETRY_ATTEMPTS
+        console.error(`Failed to play track "${currentTrack.title}" after ${MAX_RETRY_ATTEMPTS} attempts`);
+        showNotification(`Unable to play "${currentTrack.title}" after multiple attempts`, 'error');
+        
+        // Move to next track
+        nextTrack();
     }
+}
+
+/**
+ * Sets the audio source based on available track data
+ */
+function setAudioSource(track) {
+    if (!track) return false;
     
-    // Load audio
-    audio.load();
+    try {
+        if (track.usingFallback && track.embeddedAudio) {
+            // Use embedded audio as fallback
+            audio.src = track.embeddedAudio;
+            console.log(`Using embedded audio for track "${track.title}"`);
+            return true;
+        } else if (track.usingFallback && track.fallbackSrc) {
+            // Use fallback source
+            audio.src = track.fallbackSrc;
+            console.log(`Using fallback source for track "${track.title}"`);
+            return true;
+        } else if (track.filePath) {
+            // Use file path as primary source
+            audio.src = track.filePath;
+            console.log(`Using file path for track "${track.title}": ${track.filePath}`);
+            return true;
+        } else if (track.src) {
+            // Use the src property
+            audio.src = track.src;
+            console.log(`Using src for track "${track.title}": ${track.src}`);
+            return true;
+        } else if (track.embeddedAudio) {
+            // Use embedded audio as primary if no file path
+            track.usingFallback = true;
+            audio.src = track.embeddedAudio;
+            console.log(`Using embedded audio for track "${track.title}" (no file path available)`);
+            return true;
+        } else if (track.fallbackSrc) {
+            // Use fallback src as last resort
+            track.usingFallback = true;
+            audio.src = track.fallbackSrc;
+            console.log(`Using fallback source for track "${track.title}" (no other source available)`);
+            return true;
+        }
+        
+        console.error(`No valid audio source found for track: ${track.title}`);
+        return false;
+    } catch (error) {
+        console.error('Error setting audio source:', error);
+        return false;
+    }
 }
 
 // Update the visual indicator for the currently playing track
@@ -678,36 +533,153 @@ function updateCurrentTrackIndicator() {
     }
 }
 
-// Show a fallback indicator when using embedded audio
-function showFallbackIndicator(reason) {
-    // Check if a fallback indicator already exists
-    let fallbackIndicator = document.querySelector('.fallback-indicator');
+// Display a notification when fallback audio is used
+function showFallbackIndicator(message = 'Using embedded audio') {
+    const fallbackIndicator = document.getElementById('fallback-indicator');
     
     if (!fallbackIndicator) {
-        // Create a new indicator
-        fallbackIndicator = document.createElement('div');
-        fallbackIndicator.className = 'fallback-indicator';
+        // Create the indicator if it doesn't exist
+        const indicator = document.createElement('div');
+        indicator.id = 'fallback-indicator';
+        indicator.className = 'fallback-indicator';
         
-        // Position it below the player controls
-        const playerControls = document.querySelector('.player-controls');
-        playerControls.parentNode.insertBefore(fallbackIndicator, playerControls.nextSibling);
+        const content = document.createElement('div');
+        content.className = 'fallback-content';
+        
+        const icon = document.createElement('i');
+        icon.className = 'fas fa-exclamation-triangle';
+        content.appendChild(icon);
+        
+        const text = document.createElement('span');
+        text.className = 'fallback-text';
+        text.textContent = message;
+        content.appendChild(text);
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'fallback-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.addEventListener('click', () => {
+            document.body.removeChild(indicator);
+        });
+        content.appendChild(closeBtn);
+        
+        indicator.appendChild(content);
+        document.body.appendChild(indicator);
+        
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            if (document.body.contains(indicator)) {
+                indicator.classList.add('fade-out');
+                setTimeout(() => {
+                    if (document.body.contains(indicator)) {
+                        document.body.removeChild(indicator);
+                    }
+                }, 1000);
+            }
+        }, 5000);
+    } else {
+        // Update existing indicator
+        const textElement = fallbackIndicator.querySelector('.fallback-text');
+        if (textElement) {
+            textElement.textContent = message;
+        }
+        
+        // Reset the auto-hide timer
+        fallbackIndicator.classList.remove('fade-out');
+        clearTimeout(fallbackIndicator.hideTimeout);
+        fallbackIndicator.hideTimeout = setTimeout(() => {
+            fallbackIndicator.classList.add('fade-out');
+            setTimeout(() => {
+                if (document.body.contains(fallbackIndicator)) {
+                    document.body.removeChild(fallbackIndicator);
+                }
+            }, 1000);
+        }, 5000);
     }
     
-    // Set or update the message
-    fallbackIndicator.textContent = reason;
-    
-    // Make it visible for 5 seconds then fade out
-    fallbackIndicator.style.opacity = '1';
-    
-    // Clear any existing timeout
-    if (fallbackIndicator.fadeTimeout) {
-        clearTimeout(fallbackIndicator.fadeTimeout);
+    // Add CSS if it doesn't exist
+    if (!document.getElementById('fallback-indicator-style')) {
+        const style = document.createElement('style');
+        style.id = 'fallback-indicator-style';
+        style.textContent = `
+            .fallback-indicator {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background-color: rgba(0, 0, 0, 0.7);
+                color: white;
+                padding: 10px;
+                border-radius: 5px;
+                z-index: 1000;
+                max-width: 300px;
+                animation: slide-in 0.3s ease-out;
+                backdrop-filter: blur(5px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            }
+            
+            .fallback-content {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            
+            .fallback-text {
+                flex: 1;
+                font-size: 14px;
+            }
+            
+            .fallback-close {
+                background: none;
+                border: none;
+                color: white;
+                font-size: 16px;
+                cursor: pointer;
+                padding: 0 5px;
+            }
+            
+            .fallback-indicator.fade-out {
+                opacity: 0;
+                transition: opacity 1s;
+            }
+            
+            @keyframes slide-in {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+}
+
+/**
+ * Find a suitable fallback track if the current one fails to load
+ * @returns {number|null} - The index of a fallback track or null if none available
+ */
+function findFallbackTrack() {
+    // First try sample tracks with embedded audio
+    for (let i = 0; i < tracksData.length; i++) {
+        const track = tracksData[i];
+        // Skip the current track since it's already failing
+        if (currentTrackIndex === i) continue;
+        
+        // Look for a track with a src that's not starting with @audio/ 
+        // and has a fallbackSrc
+        if (track.src && 
+            !track.src.startsWith('@audio/') && 
+            track.fallbackSrc) {
+            return i;
+        }
     }
     
-    // Set a new timeout to fade out
-    fallbackIndicator.fadeTimeout = setTimeout(() => {
-        fallbackIndicator.style.opacity = '0';
-    }, 5000);
+    // If no suitable track with embedded audio, try any track
+    for (let i = 0; i < tracksData.length; i++) {
+        if (currentTrackIndex === i) continue;
+        return i;
+    }
+    
+    // If still nothing, just return 0 if it's not the current track
+    return currentTrackIndex === 0 ? 1 : 0;
 }
 
 // Play the current track
@@ -722,7 +694,7 @@ function playTrack() {
     // Check if the audio is loaded
     if (audio.readyState === 0) {
         console.log('Audio not loaded yet, loading first...');
-        loadTrack(currentTrack);
+        loadTrack(currentTrackIndex);
     }
     
     // Play the audio with error handling
@@ -782,7 +754,7 @@ function pauseTrack() {
 }
 
 // Toggle play/pause
-function togglePlay() {
+function togglePlayPause() {
     if (isPlaying) {
         pauseTrack();
     } else {
@@ -1318,6 +1290,33 @@ function showNotification(message) {
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('TildeSoundArt Player v2 - Initializing...');
     
+    // Verify all required DOM elements exist before proceeding
+    const requiredElements = {
+        albumArt: document.getElementById('album-art'),
+        trackTitle: document.getElementById('track-title'),
+        trackArtist: document.getElementById('track-artist'),
+        prevBtn: document.getElementById('prev-btn'),
+        playBtn: document.getElementById('play-btn'),
+        nextBtn: document.getElementById('next-btn'),
+        tracksContainer: document.getElementById('tracks-container'),
+        playlistContainer: document.getElementById('playlist-container'),
+        progressBar: document.querySelector('.progress'),
+        volumeSlider: document.getElementById('volume')
+    };
+    
+    // Log DOM elements to check if they're found
+    console.log('Player DOM elements:', requiredElements);
+    
+    // Check if any required elements are missing
+    const missingElements = Object.entries(requiredElements)
+        .filter(([_, element]) => !element)
+        .map(([name]) => name);
+    
+    if (missingElements.length > 0) {
+        console.error('Missing required DOM elements:', missingElements);
+        alert('Error: Some UI elements are missing. The player may not work correctly.');
+    }
+    
     // First try to load tracks from storage
     await loadUploadedTracks();
     
@@ -1347,4 +1346,553 @@ document.addEventListener('DOMContentLoaded', async function() {
         console.log('Saving sample tracks to storage for future use');
         await saveTracksData();
     }
-}); 
+    
+    console.log('Initialization complete. Try clicking on UI elements now.');
+});
+
+function handlePlaylistClick(event) {
+    const target = event.target;
+    
+    // Check if a track item was clicked
+    if (target.closest('.playlist-item')) {
+        const trackIndex = parseInt(target.closest('.playlist-item').dataset.index);
+        if (!isNaN(trackIndex) && trackIndex >= 0 && trackIndex < tracksData.length) {
+            console.log('Playlist item clicked, loading track at index:', trackIndex);
+            loadTrack(trackIndex);
+            playTrack();
+        }
+    }
+}
+
+function nextTrack() {
+    if (tracksData.length === 0) return;
+    
+    const nextIndex = (currentTrackIndex + 1) % tracksData.length;
+    loadTrack(nextIndex);
+    playTrack();
+}
+
+function prevTrack() {
+    if (tracksData.length === 0) return;
+    
+    const prevIndex = (currentTrackIndex - 1 + tracksData.length) % tracksData.length;
+    loadTrack(prevIndex);
+    playTrack();
+}
+
+/**
+ * Load a track into the player by index or track object
+ * @param {number|Object} trackOrIndex - The track index or track object to load
+ */
+function loadTrack(trackOrIndex) {
+    // Determine if we received a track index or a track object
+    let track;
+    let trackIndex;
+
+    if (typeof trackOrIndex === 'number') {
+        // It's an index into tracksData
+        trackIndex = trackOrIndex;
+        track = tracksData[trackIndex];
+    } else {
+        // It's a track object
+        track = trackOrIndex;
+        trackIndex = tracksData.findIndex(t => t.id === track.id);
+    }
+
+    if (!track) {
+        console.error('Cannot load track: Invalid track or index provided', trackOrIndex);
+        return;
+    }
+
+    console.log('Loading track:', track.title, 'by', track.artist);
+    
+    // Store the current track index for later use
+    currentTrackIndex = trackIndex;
+    
+    // Set the current track
+    currentTrack = track;
+    
+    // Update UI elements
+    trackTitle.textContent = track.title;
+    trackArtist.textContent = track.artist;
+    
+    // Update album art if available
+    if (track.albumArt) {
+        albumArt.src = track.albumArt;
+    } else {
+        albumArt.src = 'assets/images/Tilde_Logo.png';
+    }
+    
+    // Reset any previous play error flags
+    track.retryCount = 0;
+    track.usingFallback = false;
+    
+    // Set audio source based on track data
+    if (!setAudioSource(track)) {
+        console.error('Failed to set audio source for track:', track.title);
+        
+        // Try fallback if available
+        if (track.fallbackSrc) {
+            console.log('Using fallback audio source for track');
+            audio.src = track.fallbackSrc;
+            track.usingFallback = true;
+            showFallbackIndicator(`Using embedded audio for "${track.title}"`);
+        } else {
+            showNotification('Error: Could not load audio for this track', 'error');
+        }
+    }
+    
+    // Load the audio
+    audio.load();
+    
+    // Save current track ID to localStorage
+    localStorage.setItem('currentTrackId', track.id.toString());
+    
+    // Update the current track indicator in the UI
+    updateCurrentTrackIndicator();
+    
+    return true;
+}
+
+/**
+ * Update the play/pause button state
+ * @param {boolean} isPlaying - Whether the audio is currently playing
+ */
+function updatePlayPauseState(playing) {
+    isPlaying = playing;
+    
+    if (playing) {
+        playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    } else {
+        playBtn.innerHTML = '<i class="fas fa-play"></i>';
+    }
+    
+    // Update the visual indicator for the current track
+    updateCurrentTrackIndicator();
+}
+
+// Add this function near the other rendering functions
+/**
+ * Render the list of tracks in the track catalog
+ */
+function renderTrackList() {
+    if (!tracksContainer) {
+        console.error('Track container not found');
+        return;
+    }
+    
+    console.log('Rendering track list with', tracksData.length, 'tracks');
+    
+    // Clear any existing tracks
+    tracksContainer.innerHTML = '';
+    
+    // Set filteredTracks to all tracks initially if it's empty
+    if (filteredTracks.length === 0) {
+        filteredTracks = [...tracksData];
+    }
+    
+    // Render each track
+    filteredTracks.forEach(track => {
+        const trackItem = document.createElement('div');
+        trackItem.className = 'track-item';
+        trackItem.dataset.trackId = track.id;
+        
+        // Create mood and genre tags HTML
+        let moodTags = '';
+        if (track.mood && track.mood.length > 0) {
+            moodTags = track.mood.map(mood => 
+                `<span class="tag mood">${mood}</span>`
+            ).join('');
+        }
+        
+        let genreTags = '';
+        if (track.genre && track.genre.length > 0) {
+            genreTags = track.genre.map(genre => 
+                `<span class="tag genre">${genre}</span>`
+            ).join('');
+        }
+        
+        // Set the track item HTML
+        trackItem.innerHTML = `
+            <div class="track-info">
+                <h4>${track.title}</h4>
+                <p>${track.artist}</p>
+                <div class="track-tags">
+                    ${moodTags}
+                    ${genreTags}
+                    ${track.duration ? `<span class="tag duration">${track.duration}</span>` : ''}
+                </div>
+            </div>
+            <div class="track-actions">
+                <button class="play-track-btn"><i class="fas fa-play"></i></button>
+                <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
+            </div>
+        `;
+        
+        // Add event listeners
+        const playButton = trackItem.querySelector('.play-track-btn');
+        playButton.addEventListener('click', () => {
+            loadTrack(track);
+            playTrack();
+        });
+        
+        const addToPlaylistButton = trackItem.querySelector('.add-to-playlist-btn');
+        addToPlaylistButton.addEventListener('click', () => {
+            addToPlaylist(track);
+        });
+        
+        // Add the track item to the container
+        tracksContainer.appendChild(trackItem);
+    });
+    
+    // Update current track indicator
+    if (currentTrack) {
+        updateCurrentTrackIndicator();
+    }
+}
+
+/**
+ * Render a specific list of tracks in the catalog
+ * @param {Array} tracks - The tracks to render
+ */
+function renderTracks(tracks) {
+    if (!tracksContainer) {
+        console.error('Track container not found');
+        return;
+    }
+    
+    console.log('Rendering filtered track list with', tracks.length, 'tracks');
+    
+    // Clear any existing tracks
+    tracksContainer.innerHTML = '';
+    
+    if (tracks.length === 0) {
+        // Show a message if no tracks match the filters
+        tracksContainer.innerHTML = `
+            <div class="no-tracks-message">
+                <p>No tracks match your filter criteria.</p>
+                <button id="reset-filters-btn">Reset Filters</button>
+            </div>
+        `;
+        
+        // Add event listener to reset filters button
+        const resetFiltersBtn = document.getElementById('reset-filters-btn');
+        if (resetFiltersBtn) {
+            resetFiltersBtn.addEventListener('click', () => {
+                // Reset all filter buttons
+                document.querySelectorAll('.mood-btn, .genre-btn, .duration-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                // Reset filteredTracks to all tracks
+                filteredTracks = [...tracksData];
+                
+                // Render all tracks
+                renderTrackList();
+            });
+        }
+        
+        return;
+    }
+    
+    // Render each track
+    tracks.forEach(track => {
+        const trackItem = document.createElement('div');
+        trackItem.className = 'track-item';
+        trackItem.dataset.trackId = track.id;
+        
+        // Create mood and genre tags HTML
+        let moodTags = '';
+        if (track.mood && track.mood.length > 0) {
+            moodTags = track.mood.map(mood => 
+                `<span class="tag mood">${mood}</span>`
+            ).join('');
+        }
+        
+        let genreTags = '';
+        if (track.genre && track.genre.length > 0) {
+            genreTags = track.genre.map(genre => 
+                `<span class="tag genre">${genre}</span>`
+            ).join('');
+        }
+        
+        // Set the track item HTML
+        trackItem.innerHTML = `
+            <div class="track-info">
+                <h4>${track.title}</h4>
+                <p>${track.artist}</p>
+                <div class="track-tags">
+                    ${moodTags}
+                    ${genreTags}
+                    ${track.duration ? `<span class="tag duration">${track.duration}</span>` : ''}
+                </div>
+            </div>
+            <div class="track-actions">
+                <button class="play-track-btn"><i class="fas fa-play"></i></button>
+                <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
+            </div>
+        `;
+        
+        // Add event listeners
+        const playButton = trackItem.querySelector('.play-track-btn');
+        playButton.addEventListener('click', () => {
+            loadTrack(track);
+            playTrack();
+        });
+        
+        const addToPlaylistButton = trackItem.querySelector('.add-to-playlist-btn');
+        addToPlaylistButton.addEventListener('click', () => {
+            addToPlaylist(track);
+        });
+        
+        // Add the track item to the container
+        tracksContainer.appendChild(trackItem);
+    });
+}
+
+/**
+ * Seek to a position in the track
+ * @param {Event} event - The input event from the progress slider
+ */
+function seekTrack(event) {
+    if (!audio.duration) return;
+    const seekPosition = parseFloat(event.target.value);
+    audio.currentTime = (seekPosition / 100) * audio.duration;
+    updateProgress();
+}
+
+/**
+ * Set the volume level
+ * @param {number} volume - Volume level between 0 and 1
+ */
+function setVolume(volume) {
+    if (volume < 0) volume = 0;
+    if (volume > 1) volume = 1;
+    
+    audio.volume = volume;
+    
+    // Save the volume setting to localStorage
+    localStorage.setItem('volume', volume.toString());
+    
+    // Update volume icon based on level
+    const volumeIcon = document.querySelector('.volume-container i');
+    if (volumeIcon) {
+        if (volume === 0) {
+            volumeIcon.className = 'fas fa-volume-mute';
+        } else if (volume < 0.5) {
+            volumeIcon.className = 'fas fa-volume-down';
+        } else {
+            volumeIcon.className = 'fas fa-volume-up';
+        }
+    }
+}
+
+/**
+ * Play the next track in the list
+ */
+function playNextTrack() {
+    console.log('Playing next track');
+    nextTrack();
+}
+
+/**
+ * Play the previous track in the list
+ */
+function playPreviousTrack() {
+    console.log('Playing previous track');
+    prevTrack();
+}
+
+/**
+ * Set up event listeners for UI elements
+ */
+function setupEventListeners() {
+    console.log('Setting up event listeners');
+    
+    // Play/Pause button
+    if (playBtn) {
+        playBtn.addEventListener('click', togglePlayPause);
+    }
+    
+    // Next/Previous buttons
+    if (prevBtn) {
+        prevBtn.addEventListener('click', playPreviousTrack);
+    }
+    
+    if (nextBtn) {
+        nextBtn.addEventListener('click', playNextTrack);
+    }
+    
+    // Volume slider
+    if (volumeSlider) {
+        volumeSlider.addEventListener('input', updateVolume);
+    }
+    
+    // Progress bar clicks
+    const progressContainer = document.querySelector('.progress-container');
+    if (progressContainer) {
+        progressContainer.addEventListener('click', function(e) {
+            const width = this.clientWidth;
+            const clickX = e.offsetX;
+            const duration = audio.duration;
+            
+            if (duration) {
+                audio.currentTime = (clickX / width) * duration;
+                updateProgress();
+            }
+        });
+    }
+    
+    // Mood filter buttons
+    if (moodButtons) {
+        moodButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                toggleFilterButton(button, 'mood');
+                applyFilters();
+            });
+        });
+    }
+    
+    // Genre filter buttons
+    if (genreButtons) {
+        genreButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                toggleFilterButton(button, 'genre');
+                applyFilters();
+            });
+        });
+    }
+    
+    // Duration filter buttons
+    if (durationButtons) {
+        durationButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                toggleFilterButton(button, 'duration');
+                applyFilters();
+            });
+        });
+    }
+    
+    // Save current position when page unloads
+    window.addEventListener('beforeunload', () => {
+        if (currentTrack && audio) {
+            localStorage.setItem('currentTrackPosition', audio.currentTime.toString());
+        }
+    });
+    
+    // Playlist related events
+    if (playlistContainer) {
+        playlistContainer.addEventListener('click', handlePlaylistClick);
+    }
+    
+    if (clearPlaylistBtn) {
+        clearPlaylistBtn.addEventListener('click', clearPlaylist);
+    }
+    
+    if (downloadPlaylistBtn) {
+        downloadPlaylistBtn.addEventListener('click', downloadPlaylist);
+    }
+}
+
+/**
+ * Add upload page link to header
+ */
+function addUploadPageLink() {
+    const uploadLink = document.getElementById('upload-tracks-link');
+    if (uploadLink) {
+        uploadLink.addEventListener('click', () => {
+            window.location.href = 'upload.html';
+        });
+    }
+}
+
+/**
+ * Setup password protection for the upload link
+ */
+function setupUploadLinkPasswordProtection() {
+    const uploadLink = document.getElementById('upload-tracks-link');
+    if (uploadLink) {
+        uploadLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            
+            // Create a simple password prompt
+            const password = prompt('Enter password to access the upload page:');
+            
+            // Super simple password check - in a real app, use proper authentication
+            if (password === 'tilde') {
+                window.location.href = 'upload.html';
+            } else {
+                alert('Incorrect password');
+            }
+        });
+    }
+}
+
+/**
+ * Render the playlist in the UI
+ */
+function renderPlaylist() {
+    if (!playlistContainer) {
+        console.error('Playlist container not found');
+        return;
+    }
+    
+    // Clear existing items
+    playlistContainer.innerHTML = '';
+    
+    if (playlist.length === 0) {
+        // Show empty state
+        playlistContainer.innerHTML = `
+            <div class="empty-playlist">
+                <p>Your collection is empty.</p>
+                <p>Add tracks from the catalog to start building your collection.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Render each playlist item
+    playlist.forEach((track, index) => {
+        const playlistItem = document.createElement('div');
+        playlistItem.className = 'playlist-item';
+        playlistItem.dataset.index = index;
+        playlistItem.dataset.trackId = track.id;
+        playlistItem.draggable = true;
+        
+        playlistItem.innerHTML = `
+            <div class="drag-handle"><i class="fas fa-grip-lines"></i></div>
+            <div class="playlist-item-info">
+                <h4>${track.title}</h4>
+                <p>${track.artist}</p>
+            </div>
+            <div class="playlist-item-actions">
+                <button class="play-playlist-item-btn"><i class="fas fa-play"></i></button>
+                <button class="remove-from-playlist-btn"><i class="fas fa-times"></i></button>
+            </div>
+        `;
+        
+        // Add event listeners
+        const playButton = playlistItem.querySelector('.play-playlist-item-btn');
+        if (playButton) {
+            playButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                loadTrack(track);
+                playTrack();
+            });
+        }
+        
+        const removeButton = playlistItem.querySelector('.remove-from-playlist-btn');
+        if (removeButton) {
+            removeButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                removeFromPlaylist(index);
+            });
+        }
+        
+        // Add the item to the container
+        playlistContainer.appendChild(playlistItem);
+    });
+    
+    // Set up drag and drop functionality
+    setupDragAndDrop();
+} 

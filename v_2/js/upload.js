@@ -37,8 +37,8 @@ let isPreviewPlaying = false;
 // Add these API service functions at the top of the file
 const API_URL = 'http://localhost:3000/api';
 
-// Import storage service
-import storageService from './storage-service.js';
+// The storageService is now globally available from storage-service.js
+// import storageService from './storage-service.js';
 
 // API Service functions
 const api = {

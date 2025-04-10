@@ -108,6 +108,10 @@ class StorageService {
     }
 }
 
-// Create and export a singleton instance
+// Create and make the singleton instance globally available
 const storageService = new StorageService();
-export default storageService; 
+
+// Make it available globally instead of using exports
+if (typeof window !== 'undefined') {
+    window.storageService = storageService;
+} 
