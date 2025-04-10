@@ -1171,9 +1171,18 @@ footer {
     background-color: #e0e0e0;
 }
 
+.tag-checkbox input:checked {
+    accent-color: var(--primary-color);
+}
+
 .tag-checkbox input:checked + span {
     font-weight: bold;
     color: var(--primary-color);
+}
+
+.tag-checkbox input:checked ~ .tag-checkbox {
+    background-color: rgba(94, 186, 242, 0.1);
+    border-color: var(--primary-color);
 }
 
 .dialog-buttons {

@@ -30,6 +30,10 @@ class UploadHandler {
             // Add tracks from the log
             this.tracksData.tracks.forEach(track => {
                 if (!tracksData.some(t => t.id === track.id)) {
+                    // Ensure consistent tag format (lowercase, trimmed)
+                    if (track.mood) track.mood = track.mood.map(m => m.toLowerCase().trim());
+                    if (track.genre) track.genre = track.genre.map(g => g.toLowerCase().trim());
+                    
                     tracksData.push(track);
                 }
             });
@@ -130,7 +134,7 @@ class UploadHandler {
         dialog.className = 'upload-dialog';
         dialog.id = 'upload-tag-dialog';
 
-        // Define available moods and genres
+        // Define available moods and genres - must match the filters used in the player
         const availableMoods = ['happy', 'sad', 'energetic', 'calm', 'dark', 'bright', 'upbeat', 'melancholic', 'technology', 'modern'];
         const availableGenres = ['pop', 'rock', 'electronic', 'classical', 'jazz', 'hiphop', 'ambient', 'indie', 'folk', 'funk'];
         const availableDurations = ['short', 'medium', 'long'];
@@ -152,7 +156,7 @@ class UploadHandler {
                     </div>
                     
                     <div class="form-group">
-                        <label>Mood</label>
+                        <label>Mood (Select at least one)</label>
                         <div class="tag-selection mood-selection">
                             ${availableMoods.map(mood => `
                                 <label class="tag-checkbox">
@@ -164,7 +168,7 @@ class UploadHandler {
                     </div>
                     
                     <div class="form-group">
-                        <label>Genre</label>
+                        <label>Genre (Select at least one)</label>
                         <div class="tag-selection genre-selection">
                             ${availableGenres.map(genre => `
                                 <label class="tag-checkbox">
@@ -209,11 +213,38 @@ class UploadHandler {
         });
 
         document.getElementById('save-track-btn').addEventListener('click', () => {
+            // Validation - ensure at least one mood and genre is selected
+            const moodCount = document.querySelectorAll('input[name="mood"]:checked').length;
+            const genreCount = document.querySelectorAll('input[name="genre"]:checked').length;
+            
+            if (moodCount === 0) {
+                showNotification("Please select at least one mood", "error");
+                return;
+            }
+            
+            if (genreCount === 0) {
+                showNotification("Please select at least one genre", "error");
+                return;
+            }
+            
             this.processTrackWithTags(file, dialog);
         });
 
         // Set default values
         document.querySelectorAll('input[name="duration"]')[1].checked = true; // Default to medium
+        
+        // Default to some common mood and genre if none selected
+        if (document.querySelectorAll('input[name="mood"]:checked').length === 0) {
+            // Check the first one as default
+            const firstMoodCheckbox = document.querySelector('input[name="mood"]');
+            if (firstMoodCheckbox) firstMoodCheckbox.checked = true;
+        }
+        
+        if (document.querySelectorAll('input[name="genre"]:checked').length === 0) {
+            // Check the first one as default
+            const firstGenreCheckbox = document.querySelector('input[name="genre"]');
+            if (firstGenreCheckbox) firstGenreCheckbox.checked = true;
+        }
     }
 
     processTrackWithTags(file, dialog) {
@@ -224,16 +255,16 @@ class UploadHandler {
         const title = document.getElementById('track-title').value || file.name.replace('.mp3', '');
         const artist = document.getElementById('track-artist').value || 'TildeSoundArt';
         
-        // Get selected moods
+        // Get selected moods - ensure in lowercase for consistency
         const selectedMoods = [];
         document.querySelectorAll('input[name="mood"]:checked').forEach(checkbox => {
-            selectedMoods.push(checkbox.value);
+            selectedMoods.push(checkbox.value.toLowerCase().trim());
         });
         
-        // Get selected genres
+        // Get selected genres - ensure in lowercase for consistency
         const selectedGenres = [];
         document.querySelectorAll('input[name="genre"]:checked').forEach(checkbox => {
-            selectedGenres.push(checkbox.value);
+            selectedGenres.push(checkbox.value.toLowerCase().trim());
         });
         
         // Get selected duration
@@ -251,6 +282,13 @@ class UploadHandler {
             duration: selectedDuration,
             dateAdded: new Date().toISOString()
         };
+
+        // Log the tag data to verify it's being captured
+        console.log('New track tags:', {
+            mood: newTrack.mood,
+            genre: newTrack.genre,
+            duration: newTrack.duration
+        });
 
         // Add to tracks data
         this.tracksData.tracks.push(newTrack);
@@ -324,7 +362,7 @@ class UploadHandler {
         dialog.className = 'upload-dialog';
         dialog.id = 'edit-track-dialog';
 
-        // Define available moods and genres
+        // Define available moods and genres - must match the filters used in the player
         const availableMoods = ['happy', 'sad', 'energetic', 'calm', 'dark', 'bright', 'upbeat', 'melancholic', 'technology', 'modern'];
         const availableGenres = ['pop', 'rock', 'electronic', 'classical', 'jazz', 'hiphop', 'ambient', 'indie', 'folk', 'funk'];
         const availableDurations = ['short', 'medium', 'long'];
@@ -346,11 +384,11 @@ class UploadHandler {
                     </div>
                     
                     <div class="form-group">
-                        <label>Mood</label>
+                        <label>Mood (Select at least one)</label>
                         <div class="tag-selection mood-selection">
                             ${availableMoods.map(mood => `
                                 <label class="tag-checkbox">
-                                    <input type="checkbox" name="edit-mood" value="${mood}" ${track.mood.includes(mood) ? 'checked' : ''}>
+                                    <input type="checkbox" name="edit-mood" value="${mood}" ${track.mood && track.mood.includes(mood.toLowerCase()) ? 'checked' : ''}>
                                     <span>${mood}</span>
                                 </label>
                             `).join('')}
@@ -358,11 +396,11 @@ class UploadHandler {
                     </div>
                     
                     <div class="form-group">
-                        <label>Genre</label>
+                        <label>Genre (Select at least one)</label>
                         <div class="tag-selection genre-selection">
                             ${availableGenres.map(genre => `
                                 <label class="tag-checkbox">
-                                    <input type="checkbox" name="edit-genre" value="${genre}" ${track.genre.includes(genre) ? 'checked' : ''}>
+                                    <input type="checkbox" name="edit-genre" value="${genre}" ${track.genre && track.genre.includes(genre.toLowerCase()) ? 'checked' : ''}>
                                     <span>${genre}</span>
                                 </label>
                             `).join('')}
@@ -398,6 +436,20 @@ class UploadHandler {
         });
 
         document.getElementById('update-track-btn').addEventListener('click', () => {
+            // Validation - ensure at least one mood and genre is selected
+            const moodCount = document.querySelectorAll('input[name="edit-mood"]:checked').length;
+            const genreCount = document.querySelectorAll('input[name="edit-genre"]:checked').length;
+            
+            if (moodCount === 0) {
+                showNotification("Please select at least one mood", "error");
+                return;
+            }
+            
+            if (genreCount === 0) {
+                showNotification("Please select at least one genre", "error");
+                return;
+            }
+            
             this.updateTrack(track.id, dialog);
         });
     }
@@ -420,16 +472,16 @@ class UploadHandler {
         const title = document.getElementById('edit-track-title').value;
         const artist = document.getElementById('edit-track-artist').value;
         
-        // Get selected moods
+        // Get selected moods - ensure in lowercase for consistency
         const selectedMoods = [];
         document.querySelectorAll('input[name="edit-mood"]:checked').forEach(checkbox => {
-            selectedMoods.push(checkbox.value);
+            selectedMoods.push(checkbox.value.toLowerCase().trim());
         });
         
-        // Get selected genres
+        // Get selected genres - ensure in lowercase for consistency
         const selectedGenres = [];
         document.querySelectorAll('input[name="edit-genre"]:checked').forEach(checkbox => {
-            selectedGenres.push(checkbox.value);
+            selectedGenres.push(checkbox.value.toLowerCase().trim());
         });
         
         // Get selected duration
@@ -437,6 +489,13 @@ class UploadHandler {
         
         // Update progress
         this.updateProgressBar(60, "Saving changes...");
+        
+        // Log the tag data to verify it's being captured
+        console.log('Updated track tags:', {
+            mood: selectedMoods,
+            genre: selectedGenres,
+            duration: selectedDuration
+        });
         
         // Update track data
         this.tracksData.tracks[trackIndex] = {
@@ -504,7 +563,10 @@ class UploadHandler {
             title: track.title,
             artist: track.artist,
             src: track.src,
-            dateAdded: track.dateAdded
+            dateAdded: track.dateAdded,
+            mood: track.mood || ['unknown'],
+            genre: track.genre || ['unknown'],
+            duration: track.duration || 'medium'
         }));
     }
 }
@@ -557,9 +619,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add edit button to each track
     document.addEventListener('click', (e) => {
-        if (e.target.classList.contains('edit-track-btn')) {
-            const trackId = e.target.closest('.track-item').dataset.trackId;
-            uploadHandler.editTrack(trackId);
+        if (e.target.classList.contains('edit-track-btn') || 
+            (e.target.parentElement && e.target.parentElement.classList.contains('edit-track-btn'))) {
+            const trackItem = e.target.closest('.track-item');
+            if (trackItem) {
+                const trackId = trackItem.dataset.trackId;
+                uploadHandler.editTrack(trackId);
+            }
         }
     });
 }); 
