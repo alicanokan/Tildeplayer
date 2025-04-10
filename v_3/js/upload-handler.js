@@ -1,3 +1,11 @@
+// Function to show notification messages to the user
+function showNotification(message, type = 'info') {
+    console.log(`Notification: ${message} (${type})`);
+    // You can implement a more sophisticated notification system here
+    // For now, we'll just alert the message
+    alert(message);
+}
+
 // Client-side upload handler for Tildeplayer
 class UploadHandler {
     constructor() {
@@ -6,11 +14,29 @@ class UploadHandler {
         this.tracksData = null;
         this.currentUploadFile = null;
         this.loadTracksData();
+        this.addRefreshButton();
+        
+        // Make refresh function globally accessible
+        window.refreshTracks = this.refreshTracksData.bind(this);
+        
+        // Add a global refreshTracksData function that will be accessible from anywhere
+        window.refreshTracksData = () => {
+            console.log('Global refresh tracks data called');
+            this.refreshTracksData();
+        };
+        
+        // Add a global forceRefresh function that will be accessible from anywhere
+        window.forceRefresh = () => {
+            console.log('Global force refresh called');
+            this.forceRefresh();
+        };
     }
 
     async loadTracksData() {
         try {
-            const response = await fetch('assets/tracks/tracks.json');
+            // Add cache-busting parameter to prevent browser caching
+            const cacheBuster = `?cb=${Date.now()}`;
+            const response = await fetch('assets/tracks/tracks.json' + cacheBuster);
             if (!response.ok) {
                 throw new Error('Failed to load tracks data');
             }
@@ -20,6 +46,187 @@ class UploadHandler {
             console.error('Error loading tracks data:', error);
             this.tracksData = { tracks: [], lastUpdated: new Date().toISOString() };
         }
+    }
+
+    // Add a refresh button to the UI
+    addRefreshButton() {
+        // Check if button already exists
+        if (document.getElementById('refresh-tracks-btn')) return;
+
+        const button = document.createElement('button');
+        button.id = 'refresh-tracks-btn';
+        button.className = 'refresh-tracks-btn';
+        button.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Tracks';
+        button.title = 'Reload tracks data without clearing cache';
+        
+        // Add event listener
+        button.addEventListener('click', () => {
+            this.refreshTracksData();
+        });
+        
+        // Add to the document - placing it near the upload zone
+        const playerContainer = document.querySelector('.player-container');
+        if (playerContainer) {
+            playerContainer.appendChild(button);
+            
+            // Also add Force Refresh button
+            const forceRefreshBtn = document.createElement('button');
+            forceRefreshBtn.id = 'force-refresh-btn';
+            forceRefreshBtn.className = 'force-refresh-btn';
+            forceRefreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Force Refresh';
+            forceRefreshBtn.title = 'Refresh tracks completely bypassing browser cache (use when regular refresh is not showing latest changes)';
+            
+            // Add event listener for force refresh
+            forceRefreshBtn.addEventListener('click', () => {
+                this.forceRefresh();
+            });
+            
+            // Place it near the regular refresh button
+            playerContainer.appendChild(forceRefreshBtn);
+            
+            // Add help icon for explaining refresh options
+            const helpIcon = document.createElement('div');
+            helpIcon.id = 'refresh-help-icon';
+            helpIcon.className = 'refresh-help-icon';
+            helpIcon.innerHTML = '<i class="fas fa-question-circle"></i>';
+            helpIcon.title = 'Click for information about refresh options';
+            playerContainer.appendChild(helpIcon);
+            
+            // Add click event to show tooltip explaining refresh options
+            helpIcon.addEventListener('click', () => {
+                showNotification(`
+                    <strong>Refresh Options:</strong>
+                    <ul>
+                        <li><strong>Refresh Tracks</strong>: Standard refresh that may use cached data</li>
+                        <li><strong>Force Refresh</strong>: Completely bypasses browser cache for the latest data</li>
+                    </ul>
+                    <p><strong>Keyboard Shortcuts:</strong></p>
+                    <ul>
+                        <li>Ctrl/Cmd + R: Standard refresh</li>
+                        <li>Ctrl/Cmd + Shift + R: Global refresh</li>
+                        <li>Ctrl/Cmd + Alt + R: Force refresh</li>
+                    </ul>
+                `, 'info', 8000);
+            });
+        }
+        
+        // Connect to existing Apply button if it exists
+        document.addEventListener('DOMContentLoaded', () => {
+            // Find the apply button using standard selectors and text content
+            const findButtonByText = (text) => {
+                return Array.from(document.querySelectorAll('button'))
+                    .find(btn => btn.textContent.includes(text));
+            };
+            
+            const applyButton = document.querySelector('#apply-tracks-btn') || 
+                                findButtonByText('Apply Tracks to Player Page');
+            
+            if (applyButton) {
+                applyButton.addEventListener('click', () => {
+                    setTimeout(() => {
+                        // Run refresh after a short delay to allow changes to propagate
+                        window.refreshTracksData(); // Use the global function
+                    }, 1000);
+                });
+            } else {
+                // Try alternative selectors
+                const possibleButtons = [
+                    findButtonByText('Apply'),
+                    findButtonByText('Apply Tracks'),
+                    document.querySelector('[id*="apply"], [class*="apply"]'),
+                    Array.from(document.querySelectorAll('button')).find(el => 
+                        el.textContent.toLowerCase().includes('apply') || 
+                        el.textContent.toLowerCase().includes('update')
+                    )
+                ].filter(Boolean);
+                
+                if (possibleButtons.length > 0) {
+                    possibleButtons[0].addEventListener('click', () => {
+                        setTimeout(() => {
+                            window.refreshTracksData(); // Use the global function
+                        }, 1000);
+                    });
+                }
+            }
+            
+            // Also add listener for the keyboard shortcut
+            if (this.setupKeyboardShortcut) {
+                this.setupKeyboardShortcut();
+            }
+        });
+    }
+    
+    // Refresh tracks data without clearing cache
+    async refreshTracksData() {
+        const refreshButton = document.getElementById('refresh-tracks-btn');
+        
+        // Add spinning animation to button
+        if (refreshButton) {
+            refreshButton.classList.add('refreshing');
+            refreshButton.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';
+            refreshButton.disabled = true;
+        }
+        
+        // Show notification
+        showNotification('Refreshing tracks data...', 'info');
+        
+        try {
+            // Force reload the tracks data with cache-busting
+            const cacheBuster = `?cb=${Date.now()}`;
+            const response = await fetch('assets/tracks/tracks.json' + cacheBuster);
+            
+            if (!response.ok) {
+                throw new Error('Failed to refresh tracks data');
+            }
+            
+            this.tracksData = await response.json();
+            
+            // Clear existing tracks array
+            tracksData.length = 0;
+            
+            // Reinitialize from log
+            this.initializeTracksFromLog();
+            
+            // Show success notification
+            showNotification('Tracks data refreshed successfully!', 'success');
+        } catch (error) {
+            console.error('Error refreshing tracks data:', error);
+            showNotification('Failed to refresh tracks data: ' + error.message, 'error');
+        } finally {
+            // Reset button state
+            if (refreshButton) {
+                refreshButton.classList.remove('refreshing');
+                refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Tracks';
+                refreshButton.disabled = false;
+            }
+        }
+    }
+
+    // Add a method to handle keyboard shortcut for refreshing
+    setupKeyboardShortcut() {
+        document.addEventListener('keydown', (event) => {
+            // Ctrl/Cmd + R for refresh (prevent default browser refresh)
+            if ((event.ctrlKey || event.metaKey) && event.key === 'r') {
+                event.preventDefault();
+                this.refreshTracksData();
+            }
+            
+            // Add a special keyboard shortcut for global refresh: Ctrl/Cmd + Shift + R
+            if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'r') {
+                event.preventDefault();
+                console.log('Global refresh keyboard shortcut detected');
+                this.refreshTracksData();
+                showNotification('Tracks refreshed with keyboard shortcut!', 'success');
+            }
+            
+            // Add a special keyboard shortcut for force refresh: Ctrl/Cmd + Alt + R
+            if ((event.ctrlKey || event.metaKey) && event.altKey && event.key === 'r') {
+                event.preventDefault();
+                console.log('Force refresh keyboard shortcut detected');
+                this.forceRefresh();
+                showNotification('Force refresh initiated with keyboard shortcut!', 'info');
+            }
+        });
     }
 
     initializeTracksFromLog() {
@@ -569,6 +776,69 @@ class UploadHandler {
             duration: track.duration || 'medium'
         }));
     }
+
+    // Force refresh method to bypass browser cache
+    forceRefresh() {
+        const forceRefreshBtn = document.getElementById('force-refresh-btn');
+        
+        // Add spinning animation to button
+        if (forceRefreshBtn) {
+            forceRefreshBtn.classList.add('refreshing');
+            forceRefreshBtn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';
+            forceRefreshBtn.disabled = true;
+        }
+        
+        // Show notification
+        showNotification('Force refreshing tracks data...', 'info');
+        
+        // Add a cache-busting parameter to the fetch URL
+        const cacheBuster = `?cb=${Date.now()}`;
+        
+        fetch(`assets/tracks/tracks.json${cacheBuster}`, {
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            },
+            cache: 'no-store'
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch tracks data');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Force refreshed tracks data:', data);
+                
+                // Update the tracks data
+                this.tracksData = data;
+                
+                // Clear existing tracks array
+                tracksData.length = 0;
+                
+                // Reinitialize from log
+                this.initializeTracksFromLog();
+                
+                // Render the tracks list
+                renderTrackList();
+                
+                // Show success notification
+                showNotification('Tracks have been force refreshed from source!', 'success');
+            })
+            .catch(error => {
+                console.error('Error during force refresh:', error);
+                showNotification('Failed to force refresh tracks', 'error');
+            })
+            .finally(() => {
+                // Reset button state
+                if (forceRefreshBtn) {
+                    forceRefreshBtn.classList.remove('refreshing');
+                    forceRefreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Force Refresh';
+                    forceRefreshBtn.disabled = false;
+                }
+            });
+    }
 }
 
 // Initialize upload handler
@@ -626,6 +896,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 const trackId = trackItem.dataset.trackId;
                 uploadHandler.editTrack(trackId);
             }
+        }
+    });
+
+    // Setup keyboard shortcuts - use the uploadHandler instance to call the method
+    document.addEventListener('keydown', (e) => {
+        // Check for Ctrl+R or Cmd+R (regular refresh)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+            e.preventDefault();
+            uploadHandler.refreshTracksData();
+            showNotification('Tracks refreshed!');
+        }
+        
+        // Check for Ctrl+Shift+R or Cmd+Shift+R (global refresh)
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'R') {
+            e.preventDefault();
+            uploadHandler.refreshTracksData();
+            showNotification('Global refresh performed!');
         }
     });
 }); 

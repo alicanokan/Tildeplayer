@@ -1227,4 +1227,165 @@ footer {
 .edit-track-btn:hover {
     background-color: var(--primary-color);
     color: white;
+}
+
+/* Refresh button styles */
+.refresh-tracks-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 15px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 100;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.refresh-tracks-btn:hover {
+    background-color: var(--secondary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.refresh-tracks-btn.refreshing {
+    background-color: #999;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Animation for refresh icon */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.fa-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Quick refresh float button for mobile */
+@media (max-width: 768px) {
+    .refresh-tracks-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        top: auto;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        padding: 0;
+        justify-content: center;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    
+    .refresh-tracks-btn span {
+        display: none;
+    }
+    
+    .refresh-tracks-btn i {
+        font-size: 20px;
+    }
+}
+
+/* Force Refresh button styles */
+.force-refresh-btn {
+    background-color: #FF7043; /* Orange color to distinguish from normal refresh */
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 8px 15px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-left: 10px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.force-refresh-btn:hover {
+    background-color: #E64A19; /* Darker orange on hover */
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.force-refresh-btn.refreshing {
+    background-color: #999;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Mobile styles for force refresh button */
+@media (max-width: 768px) {
+    .force-refresh-btn {
+        position: fixed;
+        bottom: 80px; /* Position above the regular refresh button */
+        right: 20px;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        padding: 0;
+        justify-content: center;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    
+    .force-refresh-btn span {
+        display: none;
+    }
+    
+    .force-refresh-btn i {
+        font-size: 20px;
+    }
+}
+
+/* Help icon styles */
+.refresh-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    font-size: 16px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    margin-left: 10px;
+    transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.refresh-help-icon:hover {
+    color: var(--primary-color);
+    transform: scale(1.1);
+}
+
+.refresh-help-icon i {
+    font-size: 18px;
+}
+
+/* Mobile styles for help icon */
+@media (max-width: 768px) {
+    .refresh-help-icon {
+        position: fixed;
+        bottom: 140px; /* Position above both refresh buttons */
+        right: 20px;
+        background-color: white;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        width: 36px;
+        height: 36px;
+    }
+    
+    .refresh-help-icon i {
+        font-size: 20px;
+    }
 } 
