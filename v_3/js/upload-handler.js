@@ -1147,18 +1147,30 @@ class UploadHandler {
     }
     
     /**
-     * Force refresh track data from the server
-     * This bypasses browser cache by adding a timestamp to the request
+     * Force refresh the track data without clearing the browser cache
+     * Can be triggered manually or after a Gist sync
      */
     forceRefresh() {
+        // Guard against recursive or rapid repeat calls
+        if (this._refreshInProgress) {
+            console.log('A refresh operation is already in progress, ignoring duplicate call');
+            return false;
+        }
+        
+        // Set refresh in progress flag and clear after a timeout
+        this._refreshInProgress = true;
+        const refreshTimeout = setTimeout(() => {
+            this._refreshInProgress = false;
+        }, 5000); // Clear flag after 5 seconds to ensure it doesn't stay stuck
+        
         console.log('Force refreshing track data...');
         
-        // Show notification that refresh is starting
+        // Show a notification if the service is available
         if (window.notificationService) {
             window.notificationService.show(
-                'Refreshing', 
-                'Refreshing track data from server...',
-                'info',
+                'Refreshing Data', 
+                'Refreshing track data from server...', 
+                'info', 
                 3000
             );
         }
@@ -1186,6 +1198,9 @@ class UploadHandler {
                         // Fallback to direct fetch from server
                         this._fetchTracksWithCacheBusting();
                     }
+                    // Clear refresh flag
+                    clearTimeout(refreshTimeout);
+                    this._refreshInProgress = false;
                 })
                 .catch(error => {
                     console.error('Error syncing from Gist:', error);
@@ -1194,20 +1209,30 @@ class UploadHandler {
                     if (window.notificationService) {
                         window.notificationService.show(
                             'Sync Error', 
-                            `Error syncing from GitHub: ${error.message}. Falling back to direct fetch.`,
-                            'error',
+                            `Error syncing from GitHub: ${error.message}. Falling back to direct fetch.`, 
+                            'error', 
                             5000
                         );
                     }
                     
                     // Fallback to direct fetch from server
                     this._fetchTracksWithCacheBusting();
+                    
+                    // Clear refresh flag
+                    clearTimeout(refreshTimeout);
+                    this._refreshInProgress = false;
                 });
         } else {
             // No storage service available, use direct fetch
             console.warn('Storage service not available for sync, using direct fetch');
             this._fetchTracksWithCacheBusting();
+            
+            // Clear refresh flag
+            clearTimeout(refreshTimeout);
+            this._refreshInProgress = false;
         }
+        
+        return true;
     }
     
     /**

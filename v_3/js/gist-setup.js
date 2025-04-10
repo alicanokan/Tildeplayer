@@ -220,6 +220,16 @@
             .gist-sync-btn:hover {
                 background: #303F9F;
             }
+            
+            .reset-btn {
+                background: #ff9800;
+                margin-top: 5px;
+                font-size: 12px;
+            }
+            
+            .reset-btn:hover {
+                background: #e68900;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -273,6 +283,7 @@
                 <button id="save-gist-id-btn">Save Gist ID</button>
                 <button id="test-gist-btn">Test Connection</button>
                 <button id="sync-with-player-btn" class="gist-sync-btn">Sync with Player</button>
+                <button id="reset-sync-flags-btn" class="reset-btn">Reset Sync Operations</button>
                 
                 <div class="gist-help-link">
                     How to create a GitHub Gist
@@ -354,11 +365,29 @@
                 return;
             }
             
-            // Update button state to indicate sync is in progress
+            // Get the sync button
             const syncButton = document.getElementById('sync-with-player-btn');
+            
+            // Check if the button is already in a throttled state
+            if (syncButton.disabled || syncButton.classList.contains('throttled')) {
+                console.log('Sync operation throttled - wait for the current sync to complete');
+                return;
+            }
+            
+            // Update button state to indicate sync is in progress
             const originalButtonText = syncButton.textContent;
             syncButton.textContent = 'Syncing...';
             syncButton.disabled = true;
+            syncButton.classList.add('throttled');
+            
+            // Set a minimum timeout for the button regardless of sync result
+            const enableButtonAfterDelay = () => {
+                setTimeout(() => {
+                    syncButton.disabled = false;
+                    syncButton.textContent = originalButtonText;
+                    syncButton.classList.remove('throttled');
+                }, 5000); // Minimum 5 second wait between sync operations
+            };
             
             // First sync from Gist to local storage
             if (window.storageService) {
@@ -439,14 +468,12 @@
                         }
                     })
                     .finally(() => {
-                        // Reset the button state regardless of outcome
-                        syncButton.textContent = originalButtonText;
-                        syncButton.disabled = false;
+                        // Enable the button after the minimum delay
+                        enableButtonAfterDelay();
                     });
             } else {
                 updateGistStatus(false, 'Storage service not available');
-                syncButton.textContent = originalButtonText;
-                syncButton.disabled = false;
+                enableButtonAfterDelay();
             }
         });
         
@@ -468,6 +495,36 @@
         
         setupContainer.querySelector('.token-help').addEventListener('click', () => {
             window.open('https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token', '_blank');
+        });
+        
+        // Add event listener for the reset button
+        setupContainer.querySelector('#reset-sync-flags-btn').addEventListener('click', () => {
+            if (window.storageService && typeof window.storageService.resetFlags === 'function') {
+                window.storageService.resetFlags();
+                updateGistStatus(true, 'Sync operations reset');
+            } else {
+                // Fallback if the resetFlags method doesn't exist
+                if (window.storageService) {
+                    window.storageService._syncInProgress = false;
+                    window.storageService._refreshInProgress = false;
+                }
+                
+                if (window.uploadHandler) {
+                    window.uploadHandler._refreshInProgress = false;
+                }
+                
+                updateGistStatus(true, 'Sync flags manually reset');
+                
+                // Show notification
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Operations Reset',
+                        'Sync operations have been manually reset.',
+                        'info',
+                        3000
+                    );
+                }
+            }
         });
     }
     
@@ -859,13 +916,26 @@
             
             // Make the storage service available globally
             window.storageService.forceRefreshAfterSync = function() {
+                // Add a guard to prevent infinite loops
+                if (window.storageService._refreshInProgress) {
+                    console.log('Refresh already in progress, skipping to prevent infinite loop');
+                    return false;
+                }
+                
+                window.storageService._refreshInProgress = true;
+                
                 if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
                     console.log('Force refreshing player after Gist sync');
                     try {
                         window.uploadHandler.forceRefresh();
+                        // Reset the guard after a delay to allow for any pending operations to complete
+                        setTimeout(() => {
+                            window.storageService._refreshInProgress = false;
+                        }, 2000);
                         return true;
                     } catch (error) {
                         console.error('Error during force refresh:', error);
+                        window.storageService._refreshInProgress = false;
                         return false;
                     }
                 } else {
@@ -892,6 +962,10 @@
                                         }
                                     }
                                 }
+                                // Reset the guard after a delay
+                                setTimeout(() => {
+                                    window.storageService._refreshInProgress = false;
+                                }, 2000);
                                 return true;
                             }
                         } catch (e) {
@@ -908,6 +982,7 @@
                             5000
                         );
                     }
+                    window.storageService._refreshInProgress = false;
                     return false;
                 }
             };

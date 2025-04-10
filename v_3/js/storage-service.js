@@ -63,6 +63,10 @@ class StorageService {
         try {
             this._initialized = false;
 
+            // Reset any stuck flags from previous sessions
+            this._syncInProgress = false;
+            this._refreshInProgress = false;
+            
             // Get saved values from localStorage with proper keys
             this.GIST_ID = localStorage.getItem('gist-id') || null;
             this.GITHUB_TOKEN = localStorage.getItem('github-token') || null;
@@ -688,6 +692,15 @@ class StorageService {
     // New method to sync data from Gist to localStorage
     async syncFromGistToLocal() {
         try {
+            // Guard against recursive calls
+            if (this._syncInProgress) {
+                console.log('Sync already in progress, skipping duplicate call');
+                return false;
+            }
+            
+            // Set sync in progress flag
+            this._syncInProgress = true;
+            
             // Check if we have a Gist ID configured
             if (!this.GIST_ID) {
                 console.warn('Cannot sync from Gist: No Gist ID configured');
@@ -703,13 +716,33 @@ class StorageService {
                     );
                 }
                 
+                this._syncInProgress = false;
                 return false;
+            }
+            
+            // Check if we recently synced (within the last 3 seconds)
+            const lastSyncTime = localStorage.getItem('lastGistSyncTime');
+            if (lastSyncTime) {
+                const lastSync = new Date(parseInt(lastSyncTime));
+                const now = new Date();
+                const timeDiff = now - lastSync; // in milliseconds
+                
+                // If synced within the last 3 seconds, skip
+                if (timeDiff < 3000) {
+                    console.log(`Last sync was ${timeDiff}ms ago, skipping to prevent rapid syncs`);
+                    this._showSyncStatus('Sync skipped: Recent sync detected', 'info');
+                    this._syncInProgress = false;
+                    return true; // Return true as data should be updated from the recent sync
+                }
             }
             
             // Show loading indicator
             this._showSyncStatus('Syncing from Gist...', 'loading');
             
             const tracksData = await this._fetchGistData();
+            
+            // Store sync timestamp
+            localStorage.setItem('lastGistSyncTime', Date.now().toString());
             
             // First check for tildeplayer_data.json (new format)
             if (tracksData.files && tracksData.files['tildeplayer_data.json']) {
@@ -840,6 +873,9 @@ class StorageService {
             }
             
             return false;
+        } finally {
+            // Always reset the sync flag, even if there's an error
+            this._syncInProgress = false;
         }
     }
 
@@ -1972,6 +2008,31 @@ class StorageService {
             }
             
             return false;
+        }
+    }
+
+    /**
+     * Reset any stuck sync or refresh flags
+     * This is useful if operations get stuck in an inconsistent state
+     */
+    resetFlags() {
+        console.log('Resetting storage service operation flags');
+        this._syncInProgress = false;
+        this._refreshInProgress = false;
+        
+        // Also reset the flag on the upload handler if it exists
+        if (window.uploadHandler) {
+            window.uploadHandler._refreshInProgress = false;
+        }
+        
+        // Notify about the reset
+        if (window.notificationService) {
+            window.notificationService.show(
+                'Flags Reset',
+                'Operation flags have been reset. You can now perform sync operations.',
+                'info',
+                3000
+            );
         }
     }
 }
