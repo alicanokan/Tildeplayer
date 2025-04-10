@@ -1,0 +1,16 @@
+/* Fallback indicator styling */
+.fallback-indicator {
+    background-color: rgba(255, 165, 0, 0.8);
+    color: #fff;
+    text-align: center;
+    padding: 5px 10px;
+    border-radius: 4px;
+    margin: 5px auto;
+    max-width: 80%;
+    font-size: 12px;
+    position: relative;
+    opacity: 1;
+    transition: opacity 1s ease;
+    z-index: 10;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+} 
