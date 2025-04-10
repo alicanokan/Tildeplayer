@@ -1954,9 +1954,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (window.storageService) {
         console.log('Storage service found, synchronizing track collections...');
         try {
-            // Make sure track collections are in sync
             await window.storageService.syncTrackCollections();
-            console.log('Track collections synchronized');
         } catch (error) {
             console.error('Error synchronizing track collections:', error);
         }
