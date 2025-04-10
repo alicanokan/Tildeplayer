@@ -47,6 +47,37 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+/**
+ * Safely execute a storage operation with error handling and a fallback value
+ * @param {Function} operation - An async function that performs the storage operation
+ * @param {*} fallbackValue - The value to return if the operation fails
+ * @returns {Promise<*>} - The result of the operation or the fallback value
+ */
+async function safeStorageOperation(operation, fallbackValue) {
+    try {
+        // Execute the provided operation
+        const result = await operation();
+        
+        // Return the result or fallback if the result is null/undefined
+        return result !== null && result !== undefined ? result : fallbackValue;
+    } catch (error) {
+        console.error('Storage operation failed:', error);
+        
+        // Show notification if notification service is available
+        if (window.notificationService) {
+            window.notificationService.show(
+                'Storage Error',
+                `Storage operation failed: ${error.message}`,
+                'warning',
+                5000
+            );
+        }
+        
+        // Return the fallback value
+        return fallbackValue;
+    }
+}
+
 // Create a global notification service
 class NotificationService {
     constructor() {

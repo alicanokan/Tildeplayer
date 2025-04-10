@@ -51,6 +51,51 @@ class UploadHandler {
         this._announceReady();
     }
 
+    // Initialize UI components
+    initUI() {
+        console.log('Initializing upload handler UI');
+        
+        // Add event listeners for drag and drop if applicable
+        const dropArea = document.getElementById('drop-area');
+        if (dropArea) {
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            });
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, () => {
+                    dropArea.classList.add('highlight');
+                });
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, () => {
+                    dropArea.classList.remove('highlight');
+                });
+            });
+            
+            dropArea.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+                this.handleFileUpload(files);
+            });
+            
+            console.log('Drop area event listeners initialized');
+        }
+        
+        // Add event listener for file input if applicable
+        const fileInput = document.getElementById('file-input');
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => {
+                this.handleFileUpload(e.target.files);
+            });
+            
+            console.log('File input event listener initialized');
+        }
+    }
+
     // Inject CSS for refresh buttons
     injectRefreshButtonsCSS() {
         // Create a style element
@@ -506,23 +551,36 @@ class UploadHandler {
 
     initializeTracksFromLog() {
         if (this.tracksData && this.tracksData.tracks) {
+            // Check if global tracksData exists, if not create it
+            if (typeof window.tracksData === 'undefined') {
+                window.tracksData = [];
+                console.log('Created global tracksData array');
+            }
+            
             // Clear existing tracks
-            tracksData.length = 0;
+            window.tracksData.length = 0;
             
             // Add tracks from the log
             this.tracksData.tracks.forEach(track => {
-                if (!tracksData.some(t => t.id === track.id)) {
+                if (!window.tracksData.some(t => t.id === track.id)) {
                     // Ensure consistent tag format (lowercase, trimmed)
                     if (track.mood) track.mood = track.mood.map(m => m.toLowerCase().trim());
                     if (track.genre) track.genre = track.genre.map(g => g.toLowerCase().trim());
                     
-                    tracksData.push(track);
+                    window.tracksData.push(track);
                 }
             });
             
-            // Update UI
-            filteredTracks = [...tracksData];
-            renderTrackList();
+            // Update UI if globals exist
+            if (typeof window.filteredTracks !== 'undefined') {
+                window.filteredTracks = [...window.tracksData];
+            }
+            
+            if (typeof window.renderTrackList === 'function') {
+                window.renderTrackList();
+            }
+            
+            console.log(`Initialized ${window.tracksData.length} tracks from track log`);
         }
     }
 
