@@ -13,8 +13,21 @@ class UploadHandler {
         this.isUploading = false;
         this.tracksData = null;
         this.currentUploadFile = null;
-        this.loadTracksData();
+        this.storageServiceAvailable = false;
+        this.retryCount = 0;
+        this.maxRetries = 5;
+        
+        // Inject CSS for refresh buttons
+        this.injectRefreshButtonsCSS();
+        
+        // Wait for storage service to be available
+        this.waitForStorageService();
+        
+        // Add UI elements
         this.addRefreshButton();
+        
+        // Load tracks data
+        this.loadTracksData();
         
         // Make refresh function globally accessible
         window.refreshTracks = this.refreshTracksData.bind(this);
@@ -38,6 +51,186 @@ class UploadHandler {
         this._announceReady();
     }
 
+    // Inject CSS for refresh buttons
+    injectRefreshButtonsCSS() {
+        // Create a style element
+        const style = document.createElement('style');
+        style.textContent = `
+            .refresh-buttons-container {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                transition: all 0.3s ease;
+            }
+            
+            .refresh-tracks-btn, .force-refresh-btn, .refresh-help-icon {
+                transition: transform 0.2s ease, box-shadow 0.2s ease;
+            }
+            
+            .refresh-tracks-btn:hover, .force-refresh-btn:hover, .refresh-help-icon:hover {
+                transform: scale(1.1);
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            }
+            
+            .refresh-tracks-btn.refreshing {
+                animation: pulse 1.5s infinite;
+            }
+            
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.1); }
+                100% { transform: scale(1); }
+            }
+            
+            /* Responsive adjustments */
+            @media (max-width: 768px) {
+                .refresh-buttons-container {
+                    bottom: 70px !important;
+                    right: 20px !important;
+                    flex-direction: column;
+                }
+            }
+        `;
+        
+        // Add to document head
+        document.head.appendChild(style);
+        console.log('Refresh buttons CSS injected');
+    }
+
+    // New method to wait for the storage service to be available
+    waitForStorageService() {
+        console.log('Checking for storage service availability...');
+        
+        // Check if storage service is already available
+        if (window.storageService) {
+            console.log('Storage service already available on initialization');
+            this.storageServiceAvailable = true;
+            return;
+        }
+        
+        // Listen for the storage-service-ready event
+        window.addEventListener('storage-service-ready', (event) => {
+            console.log('Received storage-service-ready event in upload handler');
+            this.storageServiceAvailable = true;
+            
+            // Get the service from the event for more reliability
+            const service = event.detail?.service || window.storageService;
+            
+            if (service) {
+                // Connect refresh callbacks
+                if (typeof service.setRefreshCallback === 'function') {
+                    service.setRefreshCallback(() => this.forceRefresh());
+                    console.log('Successfully connected refresh callback to storage service');
+                }
+                
+                // Show a notification that connection is established
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Connected', 
+                        'GitHub Gist storage service connected successfully.',
+                        'success',
+                        3000
+                    );
+                }
+            }
+        });
+        
+        // Set up a retry mechanism to check for storage service
+        this.checkStorageServiceWithRetry();
+    }
+    
+    // New method to retry checking for storage service
+    checkStorageServiceWithRetry() {
+        const retryInterval = 1000; // 1 second between retries
+        
+        const checkInterval = setInterval(() => {
+            this.retryCount++;
+            
+            if (window.storageService) {
+                clearInterval(checkInterval);
+                this.storageServiceAvailable = true;
+                console.log(`Storage service found after ${this.retryCount} retries`);
+                
+                // Connect refresh callback
+                if (typeof window.storageService.setRefreshCallback === 'function') {
+                    window.storageService.setRefreshCallback(() => this.forceRefresh());
+                    console.log('Successfully connected refresh callback to storage service');
+                }
+                
+                return;
+            }
+            
+            if (this.retryCount >= this.maxRetries) {
+                clearInterval(checkInterval);
+                console.warn(`Storage service not found after ${this.maxRetries} retries`);
+                
+                // Show a warning notification with helpful information
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Storage Service Not Available', 
+                        `The GitHub Gist storage service is not available. Track changes will be saved locally only. 
+                        Check that storage-service.js is loaded correctly in your HTML.`,
+                        'warning',
+                        8000
+                    );
+                }
+                
+                // Continue in local-only mode
+                this.useLocalStorageOnly();
+            }
+        }, retryInterval);
+    }
+    
+    // New method to handle operating in local-only mode
+    useLocalStorageOnly() {
+        console.log('Switching to local storage only mode');
+        
+        // Create a minimal fallback service to avoid errors
+        if (!window.storageService) {
+            window.storageService = {
+                saveData: (key, data) => {
+                    try {
+                        localStorage.setItem(key, JSON.stringify(data));
+                        return Promise.resolve(true);
+                    } catch (error) {
+                        return Promise.reject(error);
+                    }
+                },
+                loadData: (key) => {
+                    try {
+                        const data = localStorage.getItem(key);
+                        return Promise.resolve(data ? JSON.parse(data) : null);
+                    } catch (error) {
+                        return Promise.reject(error);
+                    }
+                },
+                forceRefreshAfterSync: () => {
+                    this.forceRefresh();
+                    return true;
+                },
+                syncFromGistToLocal: () => {
+                    console.warn('Gist sync not available in local-only mode');
+                    return Promise.resolve(false);
+                }
+            };
+            
+            // Dispatch an event to notify that we have a fallback service
+            const event = new CustomEvent('storage-service-ready', {
+                detail: {
+                    service: window.storageService,
+                    storageMode: 'LOCAL',
+                    hasGistId: false,
+                    hasToken: false,
+                    isFallback: true
+                },
+                bubbles: true
+            });
+            window.dispatchEvent(event);
+            
+            console.log('Created fallback storage service');
+        }
+    }
+
     async loadTracksData() {
         try {
             // Add cache-busting parameter to prevent browser caching
@@ -51,6 +244,18 @@ class UploadHandler {
         } catch (error) {
             console.error('Error loading tracks data:', error);
             this.tracksData = { tracks: [], lastUpdated: new Date().toISOString() };
+            
+            // Try to load from localStorage instead
+            try {
+                const localTracks = localStorage.getItem('tracks');
+                if (localTracks) {
+                    this.tracksData = { tracks: JSON.parse(localTracks), lastUpdated: new Date().toISOString() };
+                    console.log(`Loaded ${this.tracksData.tracks.length} tracks from localStorage fallback`);
+                    this.initializeTracksFromLog();
+                }
+            } catch (localError) {
+                console.error('Error loading from localStorage fallback:', localError);
+            }
         }
     }
 
@@ -59,62 +264,125 @@ class UploadHandler {
         // Check if button already exists
         if (document.getElementById('refresh-tracks-btn')) return;
 
+        // Create refresh buttons container
+        const refreshButtonsContainer = document.createElement('div');
+        refreshButtonsContainer.className = 'refresh-buttons-container';
+        refreshButtonsContainer.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 70px; /* Position to the left of GitHub settings button */
+            display: flex;
+            gap: 10px;
+            z-index: 999;
+        `;
+
+        // Create standard refresh button
         const button = document.createElement('button');
         button.id = 'refresh-tracks-btn';
         button.className = 'refresh-tracks-btn';
-        button.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Tracks';
-        button.title = 'Reload tracks data without clearing cache';
+        button.innerHTML = '<i class="fas fa-sync-alt"></i>';
+        button.title = 'Refresh Tracks: Reload tracks data';
+        button.style.cssText = `
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        `;
         
         // Add event listener
         button.addEventListener('click', () => {
             this.refreshTracksData();
         });
         
-        // Add to the document - placing it near the upload zone
-        const playerContainer = document.querySelector('.player-container');
-        if (playerContainer) {
-            playerContainer.appendChild(button);
-            
-            // Also add Force Refresh button
-            const forceRefreshBtn = document.createElement('button');
-            forceRefreshBtn.id = 'force-refresh-btn';
-            forceRefreshBtn.className = 'force-refresh-btn';
-            forceRefreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Force Refresh';
-            forceRefreshBtn.title = 'Refresh tracks completely bypassing browser cache (use when regular refresh is not showing latest changes)';
-            
-            // Add event listener for force refresh
-            forceRefreshBtn.addEventListener('click', () => {
-                this.forceRefresh();
+        // Create Force Refresh button
+        const forceRefreshBtn = document.createElement('button');
+        forceRefreshBtn.id = 'force-refresh-btn';
+        forceRefreshBtn.className = 'force-refresh-btn';
+        forceRefreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+        forceRefreshBtn.title = 'Force Refresh: Completely bypass browser cache';
+        forceRefreshBtn.style.cssText = `
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        `;
+        
+        // Add event listener for force refresh
+        forceRefreshBtn.addEventListener('click', () => {
+            this.forceRefresh();
+        });
+        
+        // Add help icon for explaining refresh options
+        const helpIcon = document.createElement('button');
+        helpIcon.id = 'refresh-help-icon';
+        helpIcon.className = 'refresh-help-icon';
+        helpIcon.innerHTML = '<i class="fas fa-question-circle"></i>';
+        helpIcon.title = 'Click for information about refresh options';
+        helpIcon.style.cssText = `
+            background: #FFC107;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        `;
+        
+        // Add click event to show tooltip explaining refresh options
+        helpIcon.addEventListener('click', () => {
+            showNotification(`
+                <strong>Refresh Options:</strong>
+                <ul>
+                    <li><strong>Refresh Tracks</strong>: Standard refresh that may use cached data</li>
+                    <li><strong>Force Refresh</strong>: Completely bypasses browser cache for the latest data</li>
+                </ul>
+                <p><strong>Keyboard Shortcuts:</strong></p>
+                <ul>
+                    <li>Ctrl/Cmd + R: Standard refresh</li>
+                    <li>Ctrl/Cmd + Shift + R: Global refresh</li>
+                    <li>Ctrl/Cmd + Alt + R: Force refresh</li>
+                </ul>
+            `, 'info', 8000);
+        });
+        
+        // Add all buttons to the container
+        refreshButtonsContainer.appendChild(button);
+        refreshButtonsContainer.appendChild(forceRefreshBtn);
+        refreshButtonsContainer.appendChild(helpIcon);
+        
+        // Add container to the document body, not the player container
+        document.body.appendChild(refreshButtonsContainer);
+        
+        // Add hover effect to all buttons
+        const allButtons = [button, forceRefreshBtn, helpIcon];
+        allButtons.forEach(btn => {
+            btn.addEventListener('mouseover', () => {
+                btn.style.transform = 'scale(1.1)';
+                btn.style.transition = 'transform 0.2s ease';
             });
             
-            // Place it near the regular refresh button
-            playerContainer.appendChild(forceRefreshBtn);
-            
-            // Add help icon for explaining refresh options
-            const helpIcon = document.createElement('div');
-            helpIcon.id = 'refresh-help-icon';
-            helpIcon.className = 'refresh-help-icon';
-            helpIcon.innerHTML = '<i class="fas fa-question-circle"></i>';
-            helpIcon.title = 'Click for information about refresh options';
-            playerContainer.appendChild(helpIcon);
-            
-            // Add click event to show tooltip explaining refresh options
-            helpIcon.addEventListener('click', () => {
-                showNotification(`
-                    <strong>Refresh Options:</strong>
-                    <ul>
-                        <li><strong>Refresh Tracks</strong>: Standard refresh that may use cached data</li>
-                        <li><strong>Force Refresh</strong>: Completely bypasses browser cache for the latest data</li>
-                    </ul>
-                    <p><strong>Keyboard Shortcuts:</strong></p>
-                    <ul>
-                        <li>Ctrl/Cmd + R: Standard refresh</li>
-                        <li>Ctrl/Cmd + Shift + R: Global refresh</li>
-                        <li>Ctrl/Cmd + Alt + R: Force refresh</li>
-                    </ul>
-                `, 'info', 8000);
+            btn.addEventListener('mouseout', () => {
+                btn.style.transform = 'scale(1)';
             });
-        }
+        });
         
         // Connect to existing Apply button if it exists
         document.addEventListener('DOMContentLoaded', () => {
@@ -169,7 +437,8 @@ class UploadHandler {
         // Add spinning animation to button
         if (refreshButton) {
             refreshButton.classList.add('refreshing');
-            refreshButton.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';
+            const originalHTML = refreshButton.innerHTML;
+            refreshButton.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i>';
             refreshButton.disabled = true;
         }
         
@@ -202,7 +471,7 @@ class UploadHandler {
             // Reset button state
             if (refreshButton) {
                 refreshButton.classList.remove('refreshing');
-                refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Tracks';
+                refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i>';
                 refreshButton.disabled = false;
             }
         }
@@ -823,7 +1092,7 @@ class UploadHandler {
         }
         
         // Check if storage service exists and use it to sync data first
-        if (window.storageService && typeof window.storageService.syncFromGistToLocal === 'function') {
+        if (this.storageServiceAvailable && window.storageService && typeof window.storageService.syncFromGistToLocal === 'function') {
             // First sync from Gist to local
             window.storageService.syncFromGistToLocal()
                 .then(success => {
@@ -840,11 +1109,23 @@ class UploadHandler {
                 })
                 .catch(error => {
                     console.error('Error syncing from Gist:', error);
+                    
+                    // Show detailed error message
+                    if (window.notificationService) {
+                        window.notificationService.show(
+                            'Sync Error', 
+                            `Error syncing from GitHub: ${error.message}. Falling back to direct fetch.`,
+                            'error',
+                            5000
+                        );
+                    }
+                    
                     // Fallback to direct fetch from server
                     this._fetchTracksWithCacheBusting();
                 });
         } else {
             // No storage service available, use direct fetch
+            console.warn('Storage service not available for sync, using direct fetch');
             this._fetchTracksWithCacheBusting();
         }
     }
@@ -943,8 +1224,17 @@ class UploadHandler {
     
     /**
      * Add the Force Refresh button to the UI
+     * This is no longer needed since we handle this in addRefreshButton,
+     * but kept for backward compatibility
      */
     addForceRefreshButton() {
+        // If we already have the buttons in our new layout, don't add another one
+        if (document.querySelector('.refresh-buttons-container')) {
+            console.log('Force Refresh button already exists in the new layout');
+            return;
+        }
+        
+        // For legacy layouts, check the controls container
         const controlsContainer = document.querySelector('.player-controls') || document.querySelector('.controls-container');
         
         if (!controlsContainer) {
@@ -952,7 +1242,12 @@ class UploadHandler {
             return;
         }
         
-        // Create the refresh button
+        // If already exists, don't add another
+        if (document.getElementById('force-refresh-button')) {
+            return;
+        }
+        
+        // Create the refresh button for legacy layout
         const refreshButton = document.createElement('button');
         refreshButton.id = 'force-refresh-button';
         refreshButton.className = 'control-button refresh-button';
@@ -966,7 +1261,7 @@ class UploadHandler {
         
         // Add the button to the controls container
         controlsContainer.appendChild(refreshButton);
-        console.log('Force Refresh button added to UI');
+        console.log('Force Refresh button added to UI in legacy layout');
     }
 }
 

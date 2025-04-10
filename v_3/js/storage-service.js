@@ -11,6 +11,13 @@ class StorageService {
         
         // Flag to track if initialization is complete
         this._initialized = false;
+        // Flag to track service availability
+        this._available = true;
+        // Flag to track if token is valid
+        this._tokenValid = null;
+        // Retry counts for initialization
+        this._initRetryCount = 0;
+        this._maxInitRetries = 3;
         // Callback for force refresh after sync
         this.forceRefreshAfterSync = null;
         // Tracks data reference
@@ -33,6 +40,9 @@ class StorageService {
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
             this._announceReady();
         }
+        
+        // Make sure the service is globally available
+        window.storageService = this;
     }
     
     // Add new method to announce when the storage service is ready
@@ -46,14 +56,20 @@ class StorageService {
                 service: this,
                 storageMode: this.STORAGE_MODE,
                 hasGistId: !!this.GIST_ID,
-                hasToken: !!this.GITHUB_TOKEN
+                hasToken: !!this.GITHUB_TOKEN,
+                tokenValid: this._tokenValid,
+                available: this._available
             },
             bubbles: true
         });
         
         // Dispatch on window so it can be caught anywhere
         window.dispatchEvent(event);
-        console.log('Storage service ready event dispatched');
+        console.log('Storage service ready event dispatched with status:', {
+            available: this._available,
+            mode: this.STORAGE_MODE,
+            tokenValid: this._tokenValid
+        });
     }
     
     // Initialize internal storage 
@@ -76,27 +92,71 @@ class StorageService {
             }
             
             console.log(`Storage service initialized with ${this._tracks.length} tracks`);
+            
+            // Validate token in background if in Gist mode
+            if (this.STORAGE_MODE === 'GIST' && this.GITHUB_TOKEN) {
+                this.validateToken(this.GITHUB_TOKEN)
+                    .then(isValid => {
+                        this._tokenValid = isValid;
+                        console.log(`GitHub token validation result: ${isValid ? 'valid' : 'invalid'}`);
+                        
+                        // If token is invalid and we're in Gist mode, show a warning
+                        if (!isValid && this.STORAGE_MODE === 'GIST') {
+                            this.showTokenReminder('GitHub token appears to be invalid or has insufficient permissions.');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Token validation error:', err);
+                        this._tokenValid = false;
+                    });
+            }
+            
+            // Set service as available
+            this._available = true;
         } catch (error) {
             console.error('Error initializing storage service internal data:', error);
-            // Initialize with empty arrays as fallback
-            this._tracks = [];
-            this._approvedTracks = [];
-            this._pendingTracks = [];
+            
+            // Handle initialization failure
+            if (this._initRetryCount < this._maxInitRetries) {
+                this._initRetryCount++;
+                console.log(`Retrying initialization (${this._initRetryCount}/${this._maxInitRetries})...`);
+                setTimeout(() => this._init(), 1000);
+            } else {
+                console.error('Failed to initialize storage service after maximum retries');
+                // Initialize with empty arrays as fallback
+                this._tracks = [];
+                this._approvedTracks = [];
+                this._pendingTracks = [];
+                // Mark service as available but with issues
+                this._available = true;
+                
+                // Show a notification about the issue
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Storage Initialization Issue', 
+                        'There was a problem initializing the storage. Using local storage as fallback.',
+                        'warning',
+                        8000
+                    );
+                }
+            }
         }
     }
     
     // Show a notification to remind users about token setup
-    showTokenReminder() {
+    showTokenReminder(customMessage = null) {
+        const message = customMessage || 'A GitHub token is needed for full functionality. Please configure it in settings.';
+        
         if (window.notificationService) {
             window.notificationService.show(
                 'GitHub Token Required', 
-                'A GitHub token is needed for full functionality. Please configure it in settings.',
+                message,
                 'warning',
                 8000
             );
         } else {
             console.warn('GitHub token required for full functionality');
-            alert('GitHub Token Required: Please configure a GitHub token in settings for full functionality.');
+            alert('GitHub Token Required: ' + message);
         }
     }
     
@@ -111,14 +171,24 @@ class StorageService {
             console.log('GitHub token refreshed');
             
             // Validate the new token to ensure it has the right permissions
-            this.validateToken(newToken).catch(error => {
-                console.warn('Token validation error:', error);
-            });
+            this.validateToken(newToken)
+                .then(isValid => {
+                    this._tokenValid = isValid;
+                    if (!isValid) {
+                        console.warn('New token validation failed - token may have insufficient permissions');
+                        this.showTokenReminder('The provided GitHub token may have insufficient permissions (gist scope required).');
+                    }
+                })
+                .catch(error => {
+                    console.warn('Token validation error:', error);
+                    this._tokenValid = false;
+                });
         }
         
         if (newGistId) {
             this.GIST_ID = newGistId;
             localStorage.setItem('gistId', newGistId);
+            this.STORAGE_MODE = 'GIST';
             updated = true;
             console.log('Gist ID refreshed to:', newGistId);
         }
@@ -136,6 +206,9 @@ class StorageService {
             
             // Test the connection with new credentials
             this.testConnection();
+            
+            // Re-announce the service is ready with new settings
+            this._announceReady();
         }
         
         return updated;
@@ -144,23 +217,38 @@ class StorageService {
     // New method to validate a GitHub token
     async validateToken(token) {
         try {
+            if (!token) {
+                console.warn('No GitHub token provided for validation');
+                return false;
+            }
+            
+            console.log('Validating GitHub token...');
             const headers = new Headers({
                 'Accept': 'application/vnd.github.v3+json',
-                'Authorization': `token ${token}`
+                'Authorization': `token ${token}`,
+                'User-Agent': 'TildePlayer'
             });
             
             // Check if the token is valid
-            const userResponse = await fetch('https://api.github.com/user', { headers });
+            const userResponse = await fetch('https://api.github.com/user', { 
+                headers,
+                cache: 'no-store' // Always bypass cache
+            });
             
             if (!userResponse.ok) {
-                throw new Error(`Token validation failed: ${userResponse.status} ${userResponse.statusText}`);
+                console.warn(`Token validation failed: ${userResponse.status} ${userResponse.statusText}`);
+                return false;
             }
             
             // Check token scopes
-            const gistResponse = await fetch('https://api.github.com/gists', { headers });
+            const gistResponse = await fetch('https://api.github.com/gists', { 
+                headers,
+                cache: 'no-store' // Always bypass cache
+            });
             
             if (!gistResponse.ok) {
-                throw new Error(`Gist access check failed: ${gistResponse.status} ${gistResponse.statusText}`);
+                console.warn(`Gist access check failed: ${gistResponse.status} ${gistResponse.statusText}`);
+                return false;
             }
             
             // Check the scopes
@@ -168,13 +256,40 @@ class StorageService {
             
             if (!scopes || (!scopes.includes('gist') && !scopes.includes('repo'))) {
                 console.warn('Token does not have gist scope. Limited functionality.');
+                
+                // Show a specific notification about scopes
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Token Permission Issue', 
+                        'Your GitHub token does not have the "gist" permission scope. Some features may not work.',
+                        'warning',
+                        8000
+                    );
+                }
+                
                 return false;
             }
             
             console.log('Token validated successfully with scopes:', scopes);
+            
+            // Update the token valid state
+            this._tokenValid = true;
+            
             return true;
         } catch (error) {
             console.error('Error validating token:', error);
+            
+            // Show error notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Token Validation Error', 
+                    `Error validating GitHub token: ${error.message}. Check your internet connection.`,
+                    'error',
+                    5000
+                );
+            }
+            
+            this._tokenValid = false;
             return false;
         }
     }
