@@ -778,24 +778,22 @@ function approveTrack() {
     
     const track = pendingTracks[selectedTrackIndex];
     
-    // Create a cleaner filename based only on title
-    const cleanTitle = track.title.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_');
-    // Remove the artist and timestamp from the filename for cleaner URLs
-    const uniqueFileName = `${cleanTitle}.mp3`;
+    // Use the original filename instead of creating a new one
+    // This preserves spaces, parentheses, and other special characters
+    const originalFileName = track.fileName || track.originalFileName || track.name;
     
     // Create a track object for the approved list
     const approvedTrack = {
         id: track.id || Date.now(),
         title: track.title,
         artist: track.artist,
-        src: `assets/tracks/${uniqueFileName}`,
+        src: `assets/tracks/${originalFileName}`,
         albumArt: "assets/images/Tilde_Logo.png",
         mood: [...track.mood],
         genre: [...track.genre],
         duration: track.duration,
-        fileName: track.fileName || track.name,
-        uniqueFileName: uniqueFileName,
-        originalFileName: track.fileName || track.name,
+        fileName: originalFileName,
+        originalFileName: originalFileName,
         fileSize: track.fileSize
     };
     

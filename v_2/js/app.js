@@ -178,6 +178,17 @@ async function loadUploadedTracks() {
             // Clone the track to avoid modifying the original
             const cleanTrack = {...track};
             
+            // Special case for the ID Music 2 track - always use the original filename with spaces and parentheses
+            if (cleanTrack.title === "ID Music 2 - Technology F1" || 
+                (cleanTrack.src && cleanTrack.src.includes("ID_Music_2_17cTechnology_F1"))) {
+                
+                console.log(`Special handling for ID Music 2 track`);
+                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+                cleanTrack.src = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
+                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+                return cleanTrack;
+            }
+            
             // Check if the src has the problematic pattern
             if (cleanTrack.src && cleanTrack.src.includes('_Unknown_Artist_')) {
                 console.log(`Cleaning up problematic track src: ${cleanTrack.src}`);
@@ -450,6 +461,33 @@ function handleAudioError(error) {
     
     console.error(`Error playing track "${currentTrack.title}":`, error);
     
+    // Special case for ID Music 2 track - try using the exact original filename
+    if (currentTrack.title === "ID Music 2 - Technology F1" || 
+        (currentTrack.src && (currentTrack.src.includes("ID_Music_2_17cTechnology_F1") || 
+                             currentTrack.src.includes("ID Music 2 - (17c-Technology_F1)")))) {
+        
+        console.log("Special handling for ID Music 2 track error");
+        
+        // Try the alternative filename
+        const baseDir = currentTrack.src.substring(0, currentTrack.src.lastIndexOf('/') + 1);
+        
+        // If current src has spaces and parentheses, try without; otherwise try with them
+        let newSrc;
+        if (currentTrack.src.includes("ID Music 2 - (17c-Technology_F1)")) {
+            newSrc = `${baseDir}ID_Music_2_17cTechnology_F1.mp3`;
+            console.log(`Trying without spaces and parentheses: ${newSrc}`);
+        } else {
+            newSrc = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
+            console.log(`Trying with spaces and parentheses: ${newSrc}`);
+        }
+        
+        // Update the track's src
+        currentTrack.src = newSrc;
+        setAudioSource(currentTrack);
+        playTrack();
+        return;
+    }
+    
     // Initialize retry count if it doesn't exist
     if (typeof currentTrack.retryCount === 'undefined') {
         currentTrack.retryCount = 0;
@@ -512,8 +550,7 @@ function setAudioSource(track) {
             // Use file path as primary source
             audio.src = track.filePath;
             console.log(`Using file path for track "${track.title}": ${track.filePath}`);
-            return true;
-        } else if (track.src) {
+            
             // Check if the src contains any potential issues
             if (track.src.includes('_Unknown_Artist_')) {
                 // Fix the src path on the fly
@@ -527,9 +564,56 @@ function setAudioSource(track) {
                 console.log(`Fixed track src path on the fly to: ${track.src}`);
             }
             
+            // Special case fix for Technology F1 track with incorrect filename
+            if (track.title === "ID Music 2 - Technology F1" || 
+                (track.src && track.src.includes("ID_Music_2_17cTechnology_F1"))) {
+                
+                // Try with the exact original filename
+                const baseDir = track.src.substring(0, track.src.lastIndexOf('/') + 1);
+                const correctedSrc = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
+                console.log(`Trying corrected src: ${correctedSrc}`);
+                
+                // Save original src in case we need to revert
+                track.originalSrc = track.src;
+                track.src = correctedSrc;
+            }
+            
             // Use the src property
             audio.src = track.src;
             console.log(`Using src for track "${track.title}": ${track.src}`);
+            
+            // For specific track, also set up an error handler to try alternative paths
+            if (track.title === "ID Music 2 - Technology F1" || 
+                track.src.includes("ID Music 2 - (17c-Technology_F1).mp3") ||
+                track.src.includes("ID_Music_2_17cTechnology_F1.mp3")) {
+                
+                // Add one-time error listener to try alternative src if this one fails
+                const errorHandler = function() {
+                    console.log("Track load failed, trying alternative filename...");
+                    
+                    // Remove this listener to avoid loops
+                    audio.removeEventListener('error', errorHandler);
+                    
+                    // Try the alternative filename
+                    const baseDir = track.src.substring(0, track.src.lastIndexOf('/') + 1);
+                    let alternativeSrc;
+                    
+                    if (track.src.includes("ID Music 2 - (17c-Technology_F1).mp3")) {
+                        // Try the cleaned up version
+                        alternativeSrc = `${baseDir}ID_Music_2_17cTechnology_F1.mp3`;
+                    } else {
+                        // Try the original filename with spaces and parentheses
+                        alternativeSrc = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
+                    }
+                    
+                    console.log(`Trying alternative src: ${alternativeSrc}`);
+                    audio.src = alternativeSrc;
+                    audio.load();
+                };
+                
+                audio.addEventListener('error', errorHandler, { once: true });
+            }
+            
             return true;
         } else if (track.embeddedAudio) {
             // Use embedded audio as primary if no file path
