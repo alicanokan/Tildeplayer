@@ -30,6 +30,12 @@ class UploadHandler {
             console.log('Global force refresh called');
             this.forceRefresh();
         };
+        
+        // Initialize the UI
+        this.initUI();
+        
+        // Announce that the upload handler is ready
+        this._announceReady();
     }
 
     async loadTracksData() {
@@ -782,67 +788,185 @@ class UploadHandler {
         }));
     }
 
-    // Force refresh method to bypass browser cache
-    forceRefresh() {
-        const forceRefreshBtn = document.getElementById('force-refresh-btn');
+    /**
+     * Announce that the upload handler is ready so other components can connect to it
+     */
+    _announceReady() {
+        // Create and dispatch a custom event to announce the upload handler is ready
+        const event = new CustomEvent('upload-handler-ready', {
+            detail: {
+                handler: this
+            },
+            bubbles: true
+        });
         
-        // Add spinning animation to button
-        if (forceRefreshBtn) {
-            forceRefreshBtn.classList.add('refreshing');
-            forceRefreshBtn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';
-            forceRefreshBtn.disabled = true;
+        // Dispatch the event on the window object
+        window.dispatchEvent(event);
+        console.log('Upload handler ready event dispatched');
+    }
+    
+    /**
+     * Force refresh track data from the server
+     * This bypasses browser cache by adding a timestamp to the request
+     */
+    forceRefresh() {
+        console.log('Force refreshing track data...');
+        
+        // Show notification that refresh is starting
+        if (window.notificationService) {
+            window.notificationService.show(
+                'Refreshing', 
+                'Refreshing track data from server...',
+                'info',
+                3000
+            );
         }
         
-        // Show notification
-        showNotification('Force refreshing tracks data...', 'info');
+        // Check if storage service exists and use it to sync data first
+        if (window.storageService && typeof window.storageService.syncFromGistToLocal === 'function') {
+            // First sync from Gist to local
+            window.storageService.syncFromGistToLocal()
+                .then(success => {
+                    if (success) {
+                        console.log('Successfully synced from Gist to local storage');
+                        
+                        // After syncing, load tracks from local storage and update UI
+                        this._refreshFromLocalStorage();
+                    } else {
+                        console.warn('Failed to sync from Gist, falling back to direct fetch');
+                        // Fallback to direct fetch from server
+                        this._fetchTracksWithCacheBusting();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error syncing from Gist:', error);
+                    // Fallback to direct fetch from server
+                    this._fetchTracksWithCacheBusting();
+                });
+        } else {
+            // No storage service available, use direct fetch
+            this._fetchTracksWithCacheBusting();
+        }
+    }
+    
+    /**
+     * Refresh track data from localStorage
+     * Used after a Gist sync operation
+     */
+    _refreshFromLocalStorage() {
+        try {
+            const tracksData = localStorage.getItem('tracks');
+            
+            if (tracksData) {
+                const tracks = JSON.parse(tracksData);
+                
+                if (Array.isArray(tracks) && tracks.length > 0) {
+                    console.log(`Loaded ${tracks.length} tracks from localStorage`);
+                    
+                    // Update the UI with the new tracks data
+                    document.dispatchEvent(new CustomEvent('tracks-loaded', { detail: { tracks } }));
+                    
+                    // Show success notification
+                    if (window.notificationService) {
+                        window.notificationService.show(
+                            'Refresh Complete', 
+                            `Successfully loaded ${tracks.length} tracks from storage`,
+                            'success',
+                            5000
+                        );
+                    }
+                    
+                    return true;
+                } else {
+                    console.warn('No tracks found in localStorage or invalid format');
+                    return false;
+                }
+            } else {
+                console.warn('No tracks data found in localStorage');
+                return false;
+            }
+        } catch (error) {
+            console.error('Error refreshing from localStorage:', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Fetch tracks data with cache busting
+     * Used as a fallback when storage service operations fail
+     */
+    _fetchTracksWithCacheBusting() {
+        // Add timestamp to URL to bypass browser cache
+        const timestamp = new Date().getTime();
+        const url = `assets/tracks/tracks.json?t=${timestamp}`;
         
-        // Add a cache-busting parameter to the fetch URL
-        const cacheBuster = `?cb=${Date.now()}`;
-        
-        fetch(`assets/tracks/tracks.json${cacheBuster}`, {
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
-            },
-            cache: 'no-store'
-        })
+        fetch(url)
             .then(response => {
                 if (!response.ok) {
-                    throw new Error('Failed to fetch tracks data');
+                    throw new Error(`HTTP error! Status: ${response.status}`);
                 }
                 return response.json();
             })
             .then(data => {
-                console.log('Force refreshed tracks data:', data);
+                console.log(`Fetched ${data.length} tracks from server with cache busting`);
                 
-                // Update the tracks data
-                this.tracksData = data;
+                // Update the UI with the new tracks data
+                document.dispatchEvent(new CustomEvent('tracks-loaded', { detail: { tracks: data } }));
                 
-                // Clear existing tracks array
-                tracksData.length = 0;
-                
-                // Reinitialize from log
-                this.initializeTracksFromLog();
-                
-                // Render the tracks list
-                renderTrackList();
+                // Also update localStorage for future use
+                localStorage.setItem('tracks', JSON.stringify(data));
                 
                 // Show success notification
-                showNotification('Tracks have been force refreshed from source!', 'success');
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Refresh Complete', 
+                        `Successfully loaded ${data.length} tracks from server`,
+                        'success',
+                        3000
+                    );
+                }
             })
             .catch(error => {
-                console.error('Error during force refresh:', error);
-                showNotification('Failed to force refresh tracks', 'error');
-            })
-            .finally(() => {
-                // Reset button state
-                if (forceRefreshBtn) {
-                    forceRefreshBtn.classList.remove('refreshing');
-                    forceRefreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Force Refresh';
-                    forceRefreshBtn.disabled = false;
+                console.error('Error fetching tracks:', error);
+                
+                // Show error notification
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Refresh Failed', 
+                        `Failed to refresh tracks: ${error.message}`,
+                        'error',
+                        5000
+                    );
                 }
             });
+    }
+    
+    /**
+     * Add the Force Refresh button to the UI
+     */
+    addForceRefreshButton() {
+        const controlsContainer = document.querySelector('.player-controls') || document.querySelector('.controls-container');
+        
+        if (!controlsContainer) {
+            console.error('Could not find controls container for Force Refresh button');
+            return;
+        }
+        
+        // Create the refresh button
+        const refreshButton = document.createElement('button');
+        refreshButton.id = 'force-refresh-button';
+        refreshButton.className = 'control-button refresh-button';
+        refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i>';
+        refreshButton.title = 'Force Refresh Data';
+        
+        // Add click event listener
+        refreshButton.addEventListener('click', () => {
+            this.forceRefresh();
+        });
+        
+        // Add the button to the controls container
+        controlsContainer.appendChild(refreshButton);
+        console.log('Force Refresh button added to UI');
     }
 }
 

@@ -1,26 +1,167 @@
 // Storage Service for TildeSoundArt Player
 class StorageService {
     constructor() {
-        // First check if a Gist ID is saved in localStorage (from gist-setup.js)
-        const savedGistId = localStorage.getItem('gistId');
+        this.GIST_ID = localStorage.getItem('gistId') || null;
+        this.GITHUB_TOKEN = localStorage.getItem('githubToken') || null;
+        this.STORAGE_MODE = this.GIST_ID ? 'GIST' : 'LOCAL';
+        this.SYNC_TIMESTAMP = null;
         
-        // Use saved Gist ID if available, otherwise use the default/placeholder
-        this.GIST_ID = savedGistId || 'YOUR_GIST_ID_HERE'; // Replace with your own Gist ID
-        console.log('Using Gist ID:', this.GIST_ID);
+        // Flag to track if initialization is complete
+        this._initialized = false;
+        // Callback for force refresh after sync
+        this.forceRefreshAfterSync = null;
         
-        // Get GitHub token if available
-        this.GITHUB_TOKEN = localStorage.getItem('githubToken');
-        if (this.GITHUB_TOKEN) {
-            console.log('GitHub token loaded (token value hidden for security)');
-        } else {
-            console.log('No GitHub token provided - using unauthenticated requests');
+        console.log(`Storage mode: ${this.STORAGE_MODE}`);
+        
+        // Initialize internal storage
+        this._init();
+    }
+    
+    // Show a notification to remind users about token setup
+    showTokenReminder() {
+        if (window.notificationService) {
+            window.notificationService.show(
+                'GitHub Token Required', 
+                'A GitHub token is needed for full functionality. Please configure it in settings.',
+                'warning',
+                8000
+            );
+        }
+    }
+    
+    // New method to refresh token and Gist ID if there's an error
+    refreshCredentials(newToken = null, newGistId = null) {
+        let updated = false;
+        
+        if (newToken) {
+            this.GITHUB_TOKEN = newToken;
+            localStorage.setItem('githubToken', newToken);
+            updated = true;
+            console.log('GitHub token refreshed');
+            
+            // Validate the new token to ensure it has the right permissions
+            this.validateToken(newToken).catch(error => {
+                console.warn('Token validation error:', error);
+            });
         }
         
-        // Always assume we're using GitHub when we have valid settings
-        this.isGitHub = true; // Force GitHub mode
+        if (newGistId) {
+            this.GIST_ID = newGistId;
+            localStorage.setItem('gistId', newGistId);
+            updated = true;
+            console.log('Gist ID refreshed to:', newGistId);
+        }
         
-        // Add initialization to check if we need to perform initial sync
-        this.initializeStorage();
+        if (updated) {
+            // Show a success notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Credentials Updated', 
+                    'GitHub credentials have been refreshed. Testing connection...',
+                    'success',
+                    3000
+                );
+            }
+            
+            // Test the connection with new credentials
+            this.testConnection();
+        }
+        
+        return updated;
+    }
+    
+    // New method to validate a GitHub token
+    async validateToken(token) {
+        try {
+            const headers = new Headers({
+                'Accept': 'application/vnd.github.v3+json',
+                'Authorization': `token ${token}`
+            });
+            
+            // Check if the token is valid
+            const userResponse = await fetch('https://api.github.com/user', { headers });
+            
+            if (!userResponse.ok) {
+                throw new Error(`Token validation failed: ${userResponse.status} ${userResponse.statusText}`);
+            }
+            
+            // Check token scopes
+            const gistResponse = await fetch('https://api.github.com/gists', { headers });
+            
+            if (!gistResponse.ok) {
+                throw new Error(`Gist access check failed: ${gistResponse.status} ${gistResponse.statusText}`);
+            }
+            
+            // Check the scopes
+            const scopes = gistResponse.headers.get('X-OAuth-Scopes');
+            
+            if (!scopes || (!scopes.includes('gist') && !scopes.includes('repo'))) {
+                console.warn('Token does not have gist scope. Limited functionality.');
+                return false;
+            }
+            
+            console.log('Token validated successfully with scopes:', scopes);
+            return true;
+        } catch (error) {
+            console.error('Error validating token:', error);
+            return false;
+        }
+    }
+    
+    // Test GitHub connection
+    async testConnection() {
+        try {
+            console.log("Testing GitHub connection...");
+            
+            const response = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
+                headers: this.getGitHubHeaders(),
+                cache: 'no-store' // Always bypass cache for fresh data
+            });
+            
+            // Log rate limit information
+            const rateLimit = {
+                remaining: response.headers.get('X-RateLimit-Remaining'),
+                limit: response.headers.get('X-RateLimit-Limit'),
+                reset: response.headers.get('X-RateLimit-Reset')
+            };
+            
+            console.log(`GitHub API Rate Limit: ${rateLimit.remaining}/${rateLimit.limit} remaining`);
+            
+            if (!response.ok) {
+                throw this.handleGitHubApiError(response, 'testing connection');
+            }
+            
+            // Show success notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Connection Successful', 
+                    'Successfully connected to GitHub Gist',
+                    'success',
+                    3000
+                );
+            }
+            
+            return true;
+        } catch (error) {
+            console.error("Connection test failed:", error);
+            
+            // Check if this is a token issue
+            if (error.message.includes('401') || error.message.includes('403')) {
+                this.showTokenReminder();
+            }
+            
+            // Show error notification with refresh instructions
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Connection Failed', 
+                    `GitHub connection failed: ${error.message}. Please refresh your token and Gist ID in settings.`,
+                    'error',
+                    10000
+                );
+            }
+            
+            return false;
+        }
     }
     
     // Initialize storage and perform any needed syncing
@@ -79,12 +220,24 @@ class StorageService {
     
     // Helper method to handle GitHub API errors consistently
     handleGitHubApiError(response, operation = 'API request') {
+        // Log request details for debugging
+        console.log(`GitHub API ${operation} failed with status ${response.status}`);
+        
         if (response.status === 403) {
             // Could be rate limit or permissions
-            if (response.headers.get('X-RateLimit-Remaining') === '0') {
-                return new Error(`GitHub API rate limit exceeded. Try again later or add a Personal Access Token.`);
+            const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
+            const rateLimitReset = response.headers.get('X-RateLimit-Reset');
+            
+            if (rateLimitRemaining === '0') {
+                const resetTime = rateLimitReset ? new Date(parseInt(rateLimitReset) * 1000) : new Date();
+                return new Error(`GitHub API rate limit exceeded. Try again after ${resetTime.toLocaleTimeString()} or add a Personal Access Token.`);
             } else {
-                return new Error(`GitHub API access forbidden (403). Check that your token has the correct permissions.`);
+                // This is likely a permissions issue
+                if (!this.GITHUB_TOKEN) {
+                    return new Error(`GitHub API access forbidden (403). A GitHub token is required for this operation.`);
+                } else {
+                    return new Error(`GitHub API access forbidden (403). Check that your token has the correct permissions (gist scope).`);
+                }
             }
         } else if (response.status === 404) {
             return new Error(`Gist not found (404). Check your Gist ID or create a new Gist.`);
@@ -97,65 +250,262 @@ class StorageService {
     
     // New method to sync data from Gist to localStorage
     async syncFromGistToLocal() {
+        if (!this.GIST_ID) {
+            console.error('Cannot sync from Gist: No Gist ID configured');
+            this._showSyncStatus('Sync failed: No Gist ID configured', 'error');
+            return false;
+        }
+        
         try {
-            console.log("Syncing data from Gist to localStorage...");
+            // Show loading indicator
+            this._showSyncStatus('Syncing from Gist...', 'loading');
             
-            const response = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
-                headers: this.getGitHubHeaders()
-            });
+            const tracksData = await this._fetchGistData();
             
-            if (!response.ok) {
-                throw this.handleGitHubApiError(response, 'Gist sync');
-            }
-            
-            const gist = await response.json();
-            
-            if (gist.files && gist.files['tildeplayer_data.json']) {
-                const allData = JSON.parse(gist.files['tildeplayer_data.json'].content);
-                console.log("Data from Gist:", Object.keys(allData));
+            // First check for tildeplayer_data.json (new format)
+            if (tracksData.files && tracksData.files['tildeplayer_data.json']) {
+                const content = tracksData.files['tildeplayer_data.json'].content;
                 
-                // Sync each key to localStorage
-                for (const [key, value] of Object.entries(allData)) {
-                    this.saveToLocalStorage(key, value);
-                    console.log(`Synced ${key} from Gist to localStorage`);
+                try {
+                    const parsedData = JSON.parse(content);
+                    
+                    if (parsedData) {
+                        console.log('Found tildeplayer_data.json with structure:', Object.keys(parsedData));
+                        
+                        // Store each key from the data object in localStorage
+                        let syncCount = 0;
+                        for (const [key, value] of Object.entries(parsedData)) {
+                            if (key !== 'lastUpdated') {
+                                localStorage.setItem(key, JSON.stringify(value));
+                                this[`_${key}`] = value;
+                                syncCount++;
+                            }
+                        }
+                        
+                        // Update timestamp
+                        this.SYNC_TIMESTAMP = new Date().toISOString();
+                        localStorage.setItem('lastGistSync', this.SYNC_TIMESTAMP);
+                        
+                        this._showSyncStatus(`Sync from Gist successful! Synced ${syncCount} data collections.`, 'success');
+                        
+                        // Trigger force refresh if callback is available
+                        if (typeof this.forceRefreshAfterSync === 'function') {
+                            setTimeout(() => {
+                                this.forceRefreshAfterSync();
+                            }, 500);
+                        }
+                        
+                        return true;
+                    } else {
+                        throw new Error('Invalid data format in tildeplayer_data.json');
+                    }
+                } catch (parseError) {
+                    console.error('Error parsing tildeplayer_data.json:', parseError);
+                    this._showSyncStatus('Sync failed: Invalid JSON data in tildeplayer_data.json', 'error');
+                    return false;
                 }
+            } 
+            // Legacy format: check for tracks.json
+            else if (tracksData.files && tracksData.files['tracks.json']) {
+                console.log('Using legacy tracks.json format');
+                const content = tracksData.files['tracks.json'].content;
                 
-                // Show a success notification
+                try {
+                    const parsedData = JSON.parse(content);
+                    
+                    if (parsedData && Array.isArray(parsedData)) {
+                        // Store tracks in localStorage
+                        localStorage.setItem('tracks', content);
+                        
+                        // Update internal storage
+                        this._tracks = parsedData;
+                        
+                        // Update timestamp
+                        this.SYNC_TIMESTAMP = new Date().toISOString();
+                        localStorage.setItem('lastGistSync', this.SYNC_TIMESTAMP);
+                        
+                        this._showSyncStatus('Sync from Gist successful! (Legacy format)', 'success');
+                        console.log(`Successfully synced ${parsedData.length} tracks from Gist to local storage`);
+                        
+                        // Trigger force refresh if callback is available
+                        if (typeof this.forceRefreshAfterSync === 'function') {
+                            setTimeout(() => {
+                                this.forceRefreshAfterSync();
+                            }, 500);
+                        }
+                        
+                        return true;
+                    } else {
+                        throw new Error('Invalid data format in tracks.json');
+                    }
+                } catch (parseError) {
+                    console.error('Error parsing tracks.json:', parseError);
+                    this._showSyncStatus('Sync failed: Invalid JSON data in tracks.json', 'error');
+                    return false;
+                }
+            } else {
+                console.error('No valid data files found in Gist');
+                this._showSyncStatus('Sync failed: No valid data files found in Gist', 'error');
+                
+                // Offer to initialize the Gist
                 if (window.notificationService) {
                     window.notificationService.show(
-                        'Sync Complete', 
-                        'Successfully synced data from GitHub Gist',
-                        'success',
-                        3000
+                        'Initialize Gist?', 
+                        'Would you like to initialize this Gist with empty data? This will create the necessary file structure.',
+                        'warning',
+                        15000,
+                        () => {
+                            // User clicked yes/confirm
+                            this.initializeGist().then(initialized => {
+                                if (initialized) {
+                                    window.notificationService.show(
+                                        'Gist Initialized', 
+                                        'Successfully created data structure in Gist. You can now sync with the player.',
+                                        'success',
+                                        5000
+                                    );
+                                }
+                            });
+                        }
                     );
-                }
-                
-                return true;
-            } else {
-                console.warn("Gist doesn't contain tildeplayer_data.json file");
-                
-                // If we have token access, attempt to create the file
-                if (this.GITHUB_TOKEN) {
-                    console.log("Attempting to initialize the Gist with default structure");
-                    return await this.initializeGist();
                 }
                 
                 return false;
             }
         } catch (error) {
-            console.error("Error syncing from Gist to localStorage:", error);
+            console.error('Error syncing from Gist:', error);
             
-            // Show error notification
-            if (window.notificationService) {
-                window.notificationService.show(
-                    'Sync Failed', 
-                    `Failed to sync from GitHub Gist: ${error.message}`,
-                    'error',
-                    5000
-                );
+            const errorMessage = error.status === 404 
+                ? 'Gist not found (404): Check your Gist ID'
+                : error.status === 403
+                ? 'Access denied (403): Check your GitHub token for private Gists'
+                : error.status === 401
+                ? 'Unauthorized (401): GitHub token is invalid or expired'
+                : `Error: ${error.message || 'Unknown error'}`;
+                
+            this._showSyncStatus(errorMessage, 'error');
+            
+            // Show more specific instructions
+            if (error.status === 403 && !this.GITHUB_TOKEN) {
+                this.showTokenReminder();
             }
             
-            throw error; // Re-throw to allow caller to handle it
+            return false;
+        }
+    }
+
+    async _fetchGistData() {
+        const url = `https://api.github.com/gists/${this.GIST_ID}`;
+        
+        // Get headers with proper authorization
+        const headers = this.getGitHubHeaders();
+        
+        try {
+            const response = await fetch(url, { 
+                method: 'GET',
+                headers: headers,
+                cache: 'no-store' // Always bypass cache for fresh data
+            });
+            
+            if (!response.ok) {
+                const error = this.handleGitHubApiError(response, 'fetching Gist data');
+                error.status = response.status;
+                throw error;
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching Gist data:', error);
+            
+            // Check for network errors
+            if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+                throw new Error('Network error: Unable to connect to GitHub API. Check your internet connection.');
+            }
+            
+            throw error;
+        }
+    }
+
+    async _updateGist(jsonData) {
+        if (!this.GIST_ID) {
+            console.error('Cannot update Gist: No Gist ID configured');
+            return false;
+        }
+        
+        const url = `https://api.github.com/gists/${this.GIST_ID}`;
+        
+        const headers = {
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+        };
+        
+        // Add authorization header if token is available
+        if (this.GITHUB_TOKEN) {
+            headers['Authorization'] = `token ${this.GITHUB_TOKEN}`;
+        } else {
+            console.warn('No GitHub token provided. This may fail for private Gists.');
+        }
+        
+        const payload = {
+            files: {
+                'tracks.json': {
+                    content: jsonData
+                }
+            }
+        };
+        
+        try {
+            const response = await fetch(url, {
+                method: 'PATCH',
+                headers: headers,
+                body: JSON.stringify(payload)
+            });
+            
+            if (!response.ok) {
+                const error = new Error(`GitHub API error: ${response.statusText}`);
+                error.status = response.status;
+                throw error;
+            }
+            
+            // Update timestamp
+            this.SYNC_TIMESTAMP = new Date().toISOString();
+            localStorage.setItem('lastGistSync', this.SYNC_TIMESTAMP);
+            
+            return true;
+        } catch (error) {
+            console.error('Error updating Gist:', error);
+            
+            // Show specific error message based on status code
+            if (error.status === 404) {
+                this._showSyncStatus('Gist not found (404): Check your Gist ID', 'error');
+            } else if (error.status === 403) {
+                this._showSyncStatus('Access denied (403): Check your GitHub token for private Gists', 'error');
+            } else if (error.status === 401) {
+                this._showSyncStatus('Unauthorized (401): GitHub token is invalid or expired', 'error');
+            } else {
+                this._showSyncStatus(`Error updating Gist: ${error.message || 'Unknown error'}`, 'error');
+            }
+            
+            return false;
+        }
+    }
+    
+    /**
+     * Show sync status to the user
+     */
+    _showSyncStatus(message, type = 'info') {
+        // Check if we have the notification system available
+        if (window.notifications && typeof window.notifications.show === 'function') {
+            window.notifications.show(message, type === 'error' ? 'error' : 'info');
+        } else {
+            // Fallback to console
+            if (type === 'error') {
+                console.error(message);
+            } else if (type === 'success') {
+                console.log('%c' + message, 'color: green; font-weight: bold');
+            } else {
+                console.log(message);
+            }
         }
     }
 
@@ -535,13 +885,53 @@ class StorageService {
                         'GitHub Token Required', 
                         'A GitHub Personal Access Token is required to create or initialize a Gist. Please add a token in the settings.',
                         'error',
-                        8000
+                        8000,
+                        // Add callback for direct navigation to the token setup
+                        () => {
+                            // Toggle the Gist setup panel to open
+                            const toggleButton = document.querySelector('.gist-setup-toggle');
+                            if (toggleButton) {
+                                toggleButton.click();
+                                
+                                // Focus on the token input
+                                setTimeout(() => {
+                                    const tokenInput = document.getElementById('github-token-input');
+                                    if (tokenInput) {
+                                        tokenInput.focus();
+                                        // Highlight the field
+                                        tokenInput.style.border = '2px solid #f44336';
+                                        setTimeout(() => {
+                                            tokenInput.style.border = '';
+                                        }, 3000);
+                                    }
+                                }, 500);
+                            }
+                        }
                     );
                 }
                 
                 return false;
             }
             
+            // First validate the token
+            const isTokenValid = await this.validateToken(this.GITHUB_TOKEN);
+            
+            if (!isTokenValid) {
+                console.warn('The GitHub token may not have the required permissions');
+                
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Token Permissions Issue', 
+                        'Your GitHub token may not have the required gist permissions. Please validate it in settings.',
+                        'warning',
+                        8000
+                    );
+                }
+                
+                // We'll still try to proceed, but warn the user
+            }
+            
+            // Check if the Gist exists
             const response = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
                 headers: this.getGitHubHeaders()
             });
@@ -581,9 +971,31 @@ class StorageService {
                     
                     if (updateResponse.ok) {
                         console.log('Successfully added tildeplayer_data.json to existing Gist');
+                        
+                        if (window.notificationService) {
+                            window.notificationService.show(
+                                'Gist Initialized', 
+                                'Successfully initialized the Gist with TildePlayer data structure.',
+                                'success',
+                                5000
+                            );
+                        }
+                        
                         return true;
                     } else {
-                        throw this.handleGitHubApiError(updateResponse, 'adding file to Gist');
+                        const error = this.handleGitHubApiError(updateResponse, 'adding file to Gist');
+                        console.error(error);
+                        
+                        if (window.notificationService) {
+                            window.notificationService.show(
+                                'Gist Update Failed', 
+                                `Failed to update Gist: ${error.message}`,
+                                'error',
+                                8000
+                            );
+                        }
+                        
+                        throw error;
                     }
                 }
             }
@@ -591,6 +1003,15 @@ class StorageService {
             // If the Gist doesn't exist or we have a default ID, create a new one
             if (response.status === 404 || this.GIST_ID === 'YOUR_GIST_ID_HERE') {
                 console.log('Gist not found or using default ID, creating a new one...');
+                
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Creating New Gist', 
+                        'Creating a new GitHub Gist for TildePlayer data...',
+                        'info',
+                        5000
+                    );
+                }
                 
                 // Initialize with empty data structure
                 const initialContent = {
@@ -622,32 +1043,124 @@ class StorageService {
                     localStorage.setItem('gistId', data.id);
                     console.log('Created new Gist with ID:', data.id);
                     
+                    // Update the Gist ID in the settings panel if open
+                    const gistIdInput = document.getElementById('gist-id-input');
+                    if (gistIdInput) {
+                        gistIdInput.value = data.id;
+                        // Update the status indicator
+                        const statusElement = document.querySelector('.gist-id-status');
+                        if (statusElement) {
+                            statusElement.className = 'gist-id-status valid';
+                            statusElement.textContent = 'New Gist created successfully';
+                        }
+                    }
+                    
                     if (window.notificationService) {
                         window.notificationService.show(
                             'Gist Created', 
                             `Successfully created a new GitHub Gist with ID: ${data.id}`,
                             'success',
-                            5000
+                            8000,
+                            // Add a copy button callback
+                            () => {
+                                navigator.clipboard.writeText(data.id)
+                                    .then(() => {
+                                        window.notificationService.show(
+                                            'Copied!', 
+                                            'Gist ID copied to clipboard',
+                                            'success',
+                                            2000
+                                        );
+                                    })
+                                    .catch(err => {
+                                        console.error('Could not copy text: ', err);
+                                    });
+                            },
+                            'Copy Gist ID' // Custom button text
                         );
                     }
                     
                     return true;
                 } else {
-                    throw this.handleGitHubApiError(createResponse, 'creating new Gist');
+                    const error = this.handleGitHubApiError(createResponse, 'creating new Gist');
+                    console.error(error);
+                    
+                    if (window.notificationService) {
+                        window.notificationService.show(
+                            'Gist Creation Failed', 
+                            `Failed to create a new Gist: ${error.message}`,
+                            'error',
+                            8000
+                        );
+                    }
+                    
+                    throw error;
                 }
             }
             
             // Any other error response
-            throw this.handleGitHubApiError(response, 'checking Gist existence');
+            const error = this.handleGitHubApiError(response, 'checking Gist existence');
+            throw error;
         } catch (error) {
             console.error('Error initializing Gist:', error);
+            
+            // Provide specific guidance based on error type
+            let errorMessage = `Failed to initialize GitHub Gist: ${error.message}`;
+            let actionText = null;
+            let actionCallback = null;
+            
+            if (error.message.includes('401')) {
+                errorMessage = 'GitHub authentication failed. Your token is invalid or expired.';
+                actionText = 'Update Token';
+                actionCallback = () => {
+                    // Open the Gist setup panel
+                    const toggleButton = document.querySelector('.gist-setup-toggle');
+                    if (toggleButton) {
+                        toggleButton.click();
+                        
+                        // Focus on the token input
+                        setTimeout(() => {
+                            const tokenInput = document.getElementById('github-token-input');
+                            if (tokenInput) {
+                                tokenInput.focus();
+                                // Clear the current token to encourage replacement
+                                tokenInput.value = '';
+                            }
+                        }, 500);
+                    }
+                };
+            } else if (error.message.includes('403')) {
+                if (error.message.includes('rate limit')) {
+                    errorMessage = 'GitHub API rate limit exceeded. Please try again later.';
+                } else {
+                    errorMessage = 'GitHub API access denied. Your token may not have the correct permissions.';
+                    actionText = 'Validate Token';
+                    actionCallback = () => {
+                        // Open the Gist setup panel and trigger token validation
+                        const toggleButton = document.querySelector('.gist-setup-toggle');
+                        if (toggleButton) {
+                            toggleButton.click();
+                            
+                            // Click the validate button
+                            setTimeout(() => {
+                                const validateButton = document.getElementById('validate-token-btn');
+                                if (validateButton) {
+                                    validateButton.click();
+                                }
+                            }, 500);
+                        }
+                    };
+                }
+            }
             
             if (window.notificationService) {
                 window.notificationService.show(
                     'Gist Initialization Failed', 
-                    `Failed to initialize GitHub Gist: ${error.message}`,
+                    errorMessage,
                     'error',
-                    8000
+                    8000,
+                    actionCallback,
+                    actionText
                 );
             }
             
@@ -755,6 +1268,53 @@ class StorageService {
     // Add an accessor to check if we have valid Gist settings
     get hasValidGistSettings() {
         return this.GIST_ID && this.GIST_ID !== 'YOUR_GIST_ID_HERE' && this.GITHUB_TOKEN;
+    }
+
+    /**
+     * Set the callback function to be called after successful sync
+     * @param {Function} callback - The callback function
+     */
+    setRefreshCallback(callback) {
+        if (typeof callback === 'function') {
+            this.forceRefreshAfterSync = callback;
+            console.log('Refresh callback set on storage service');
+        } else {
+            console.warn('Invalid refresh callback provided to storage service');
+        }
+    }
+
+    /**
+     * Set the Gist ID for the storage service
+     * @param {string} gistId - The GitHub Gist ID
+     */
+    setGistId(gistId) {
+        if (gistId && gistId.trim() !== '') {
+            this.GIST_ID = gistId.trim();
+            localStorage.setItem('gistId', this.GIST_ID);
+            this.STORAGE_MODE = 'GIST';
+            console.log(`Storage mode set to gist with ID: ${this.GIST_ID}`);
+        } else {
+            this.GIST_ID = null;
+            localStorage.removeItem('gistId');
+            this.STORAGE_MODE = 'LOCAL';
+            console.log('Storage mode set to local (no Gist ID)');
+        }
+    }
+
+    /**
+     * Set the GitHub token for the storage service
+     * @param {string} token - The GitHub token
+     */
+    setGitHubToken(token) {
+        if (token && token.trim() !== '') {
+            this.GITHUB_TOKEN = token.trim();
+            localStorage.setItem('githubToken', this.GITHUB_TOKEN);
+            console.log('GitHub token set for storage service');
+        } else {
+            this.GITHUB_TOKEN = null;
+            localStorage.removeItem('githubToken');
+            console.log('GitHub token removed from storage service');
+        }
     }
 }
 

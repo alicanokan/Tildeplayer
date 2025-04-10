@@ -1,0 +1,10 @@
+---
+description: goal
+globs: 
+alwaysApply: false
+---
+We are a music production agency managing a large number of original tracks composed by multiple musicians. Our goal is to streamline how tracks are submitted and listed on this GitHub-based system.
+
+Composers manually upload their .mp3 files to a designated directory. This system provides them with a simple interface to also upload metadata — including track tags and information — so that the track can be listed, categorized, and made available for internal review or playback.
+
+The upload section is specifically designed to help our composers easily input this data without any technical setup. It ensures that every uploaded file is properly registered within the system with its corresponding tags, without requiring us to manually edit metadata files.
