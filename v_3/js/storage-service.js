@@ -16,7 +16,8 @@ class StorageService {
             console.log('No GitHub token provided - using unauthenticated requests');
         }
         
-        this.isGitHub = window.location.hostname.includes('github.io');
+        // Always assume we're using GitHub when we have valid settings
+        this.isGitHub = true; // Force GitHub mode
         
         // Add initialization to check if we need to perform initial sync
         this.initializeStorage();
@@ -25,19 +26,18 @@ class StorageService {
     // Initialize storage and perform any needed syncing
     async initializeStorage() {
         console.log("Initializing storage service");
-        console.log("Storage mode:", this.isGitHub ? "GitHub Gist" : "Local Storage");
+        console.log("Storage mode:", this.hasValidGistSettings ? "GitHub Gist" : "Local Storage");
         
-        // If running on GitHub, try to get data from Gist and sync to localStorage
-        if (this.isGitHub) {
+        // Always try to sync from Gist if we have valid settings
+        if (this.hasValidGistSettings) {
             try {
-                // Check if the Gist needs to be created first
-                if (this.GIST_ID === 'YOUR_GIST_ID_HERE' && this.GITHUB_TOKEN) {
-                    console.log("No Gist ID configured, attempting to create a new Gist");
-                    await this.initializeGist();
-                }
+                // First ensure the Gist exists and is initialized
+                await this.initializeGist();
                 
-                // This will help ensure localStorage is synced with Gist data
+                // Then sync from Gist to local
                 await this.syncFromGistToLocal();
+                
+                console.log("Initial Gist sync complete");
             } catch (error) {
                 console.error("Error during initial Gist-to-Local sync:", error);
                 
@@ -51,6 +51,8 @@ class StorageService {
                     );
                 }
             }
+        } else {
+            console.warn("No valid Gist settings. You should configure your GitHub token and Gist ID.");
         }
         
         // Always sync track collections to ensure consistency
@@ -217,10 +219,27 @@ class StorageService {
         }
     }
     
-    /**
-     * Special method to properly save approved tracks
-     * This ensures they get added to both approvedTracks and tracks collections
-     */
+    // Helper method to sanitize track data before saving
+    sanitizeTrackData(data) {
+        if (!data || !Array.isArray(data)) return data;
+        
+        return data.map(track => {
+            if (!track) return track;
+            
+            // Clone the track to avoid modifying the original object
+            const sanitizedTrack = {...track};
+            
+            // Fix "medium" duration values
+            if (sanitizedTrack.duration === "medium") {
+                console.log(`Fixing "medium" duration value for track "${sanitizedTrack.title}" to "energetic"`);
+                sanitizedTrack.duration = "energetic";
+            }
+            
+            return sanitizedTrack;
+        });
+    }
+    
+    // Special method to properly save approved tracks
     async saveApprovedTracks(tracks) {
         if (!tracks || !Array.isArray(tracks)) {
             console.error("Invalid tracks data for saveApprovedTracks");
@@ -230,8 +249,11 @@ class StorageService {
         try {
             console.log(`Saving ${tracks.length} approved tracks`);
             
+            // Sanitize the tracks first
+            const sanitizedTracks = this.sanitizeTrackData(tracks);
+            
             // First, save to approved tracks collection
-            await this.saveData('approvedTracks', tracks);
+            await this.saveData('approvedTracks', sanitizedTracks);
             
             // Then sync with main tracks collection
             await this.syncTrackCollections();
@@ -246,17 +268,22 @@ class StorageService {
     async saveData(key, data) {
         let saveSuccess = false;
         
-        // Always try to save to localStorage first for performance
-        const localSaveSuccess = this.saveToLocalStorage(key, data);
+        // Sanitize track data if it's a tracks collection
+        let sanitizedData = data;
+        if ((key === 'tracks' || key === 'approvedTracks' || key === 'pendingTracks') && Array.isArray(data)) {
+            sanitizedData = this.sanitizeTrackData(data);
+        }
+        
+        // Always save to localStorage first as a fallback
+        const localSaveSuccess = this.saveToLocalStorage(key, sanitizedData);
         
         // Special handling for tracks and approvedTracks
-        if (key === 'approvedTracks' && Array.isArray(data)) {
+        if (key === 'approvedTracks' && Array.isArray(sanitizedData)) {
             // When saving approved tracks, also ensure they're in the main tracks collection
-            // But don't trigger a sync yet - we'll do that after both saves complete
             const mainTracks = this.loadFromLocalStorage('tracks') || [];
             let mainTracksNeedUpdate = false;
             
-            data.forEach(approvedTrack => {
+            sanitizedData.forEach(approvedTrack => {
                 if (!mainTracks.some(track => track.id === approvedTrack.id || 
                     (track.title === approvedTrack.title && track.artist === approvedTrack.artist))) {
                     mainTracks.push(approvedTrack);
@@ -267,21 +294,31 @@ class StorageService {
             // If we added tracks to the main collection, save it
             if (mainTracksNeedUpdate) {
                 this.saveToLocalStorage('tracks', mainTracks);
-                console.log(`Updated main tracks collection with ${data.length} approved tracks`);
+                console.log(`Updated main tracks collection with ${sanitizedData.length} approved tracks`);
             }
         }
         
-        // If on GitHub, also save to Gist
-        if (this.isGitHub) {
+        // Always try to save to Gist if we have valid settings, regardless of isGitHub flag
+        if (this.hasValidGistSettings) {
             try {
-                saveSuccess = await this.saveToGist(key, data);
+                saveSuccess = await this.saveToGist(key, sanitizedData);
                 console.log(`Saved ${key} to Gist:`, saveSuccess);
+                
+                // After successful Gist save, sync from Gist to local to ensure consistency
+                if (saveSuccess) {
+                    try {
+                        await this.syncFromGistToLocal();
+                    } catch (syncError) {
+                        console.error("Error during post-save sync:", syncError);
+                    }
+                }
             } catch (error) {
                 console.error(`Error saving ${key} to Gist:`, error);
                 saveSuccess = localSaveSuccess;
             }
         } else {
             saveSuccess = localSaveSuccess;
+            console.warn("No valid Gist settings. Data saved to localStorage only.");
         }
         
         return saveSuccess;
@@ -290,24 +327,25 @@ class StorageService {
     async loadData(key) {
         let data = null;
         
-        // Always try localStorage first for performance
-        data = this.loadFromLocalStorage(key);
-        
-        // If not found in localStorage and on GitHub, try Gist
-        if (data === null && this.isGitHub) {
+        // If we have valid Gist settings, always try to load from Gist first
+        if (this.hasValidGistSettings) {
             try {
-                console.log(`Data for ${key} not found in localStorage, trying Gist...`);
+                console.log(`Attempting to load ${key} from Gist...`);
                 data = await this.loadFromGist(key);
                 
                 // If found in Gist, update localStorage for next time
                 if (data !== null) {
                     console.log(`Found ${key} in Gist, updating localStorage`);
                     this.saveToLocalStorage(key, data);
+                    return data;
                 }
             } catch (error) {
                 console.error(`Error loading ${key} from Gist:`, error);
             }
         }
+        
+        // If we couldn't load from Gist, fall back to localStorage
+        data = this.loadFromLocalStorage(key);
         
         // Special handling for 'tracks' when empty - try to load from approvedTracks
         if ((data === null || (Array.isArray(data) && data.length === 0)) && key === 'tracks') {
@@ -317,6 +355,13 @@ class StorageService {
                 data = approvedTracks;
                 // Save these to tracks for next time
                 this.saveToLocalStorage('tracks', approvedTracks);
+                
+                // Also save to Gist if possible
+                if (this.hasValidGistSettings) {
+                    this.saveToGist('tracks', approvedTracks).catch(error => {
+                        console.error("Error saving fallback tracks to Gist:", error);
+                    });
+                }
             }
         }
         

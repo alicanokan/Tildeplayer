@@ -1147,7 +1147,7 @@ async function applyToPlayer() {
                 albumArt: track.albumArt || "assets/images/togg-seeklogo.png",
                 mood: Array.isArray(track.mood) ? track.mood : ["energetic"],
                 genre: Array.isArray(track.genre) ? track.genre : ["electronic"],
-                duration: track.duration || "medium",
+                duration: track.duration === "medium" ? "energetic" : (track.duration || "energetic"),
                 // Include fallback for embedded audio if we have it
                 fallbackSrc: track.fallbackSrc || null,
                 // Add timestamp if not already present
@@ -1173,7 +1173,7 @@ async function applyToPlayer() {
         console.log("Tracks saved to main tracks collection");
         
         // Force a sync from Gist to local to ensure all storage locations are updated
-        if (window.storageService && window.storageService.isGitHub) {
+        if (window.storageService && window.storageService.hasValidGistSettings) {
             try {
                 await window.storageService.syncFromGistToLocal();
                 console.log("Force-synced from Gist to local storage after applying tracks");
@@ -1253,7 +1253,8 @@ function renderApprovedTracks() {
             case 'short':
                 durationText = '15 sec';
                 break;
-            case 'medium':
+            case 'medium': // Handle legacy "medium" values still in the data
+            case 'energetic': 
                 durationText = '30 sec';
                 break;
             case 'long':
@@ -1263,7 +1264,7 @@ function renderApprovedTracks() {
                 durationText = '60+ sec';
                 break;
             default:
-                durationText = 'Unknown';
+                durationText = track.duration || 'Unknown';
         }
         const durationTag = `<span class="tag duration">${durationText}</span>`;
         
