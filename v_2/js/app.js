@@ -20,7 +20,7 @@ let tracksData = [
         id: 1,
         title: "ID Music 2 - Technology F1",
         artist: "TildeSoundArt",
-        src: "@audio/ID Music 2 - (17c-Technology_F1).mp3",
+        src: "assets/tracks/ID_Music_2_Technology_F1.mp3",
         albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "intense"],
         genre: ["electronic", "rock"],
@@ -30,7 +30,7 @@ let tracksData = [
         id: 2,
         title: "ID Music 7 - TOGG ID MEDIA Funk",
         artist: "TildeSoundArt",
-        src: "@audio/ID Music 7 - (TOGG_ID MEDIA _Funk).mp3",
+        src: "assets/tracks/ID_Music_7_TOGG_ID_MEDIA_Funk.mp3",
         albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "happy"],
         genre: ["funk", "electronic"],
@@ -40,7 +40,7 @@ let tracksData = [
         id: 3,
         title: "Chill Summer Vibes",
         artist: "SoundScape",
-        src: "assets/audio/sample1.mp3", // Will be replaced with embedded audio if missing
+        src: "assets/tracks/sample1.mp3",
         albumArt: "assets/images/Tilde_Logo.png",
         mood: ["chill", "happy"],
         genre: ["electronic", "pop"],
@@ -50,7 +50,7 @@ let tracksData = [
         id: 4,
         title: "Urban Dreams",
         artist: "City Nights",
-        src: "assets/audio/sample2.mp3", // Will be replaced with embedded audio if missing
+        src: "assets/tracks/sample2.mp3",
         albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "focus"],
         genre: ["electronic"],
@@ -60,7 +60,7 @@ let tracksData = [
         id: 5,
         title: "Tranquil Mind",
         artist: "Oceanic Waves",
-        src: "assets/audio/sample3.mp3", // Will be replaced with embedded audio if missing
+        src: "assets/tracks/sample3.mp3",
         albumArt: "assets/images/Tilde_Logo.png",
         mood: ["chill", "focus"],
         genre: ["classical", "jazz"],
@@ -70,7 +70,7 @@ let tracksData = [
         id: 6,
         title: "Retro Funk",
         artist: "Groove Masters",
-        src: "assets/audio/sample4.mp3", // Will be replaced with embedded audio if missing
+        src: "assets/tracks/sample4.mp3",
         albumArt: "assets/images/Tilde_Logo.png",
         mood: ["happy", "energetic"],
         genre: ["pop", "rock"],
@@ -190,37 +190,54 @@ function initializeWithEmbeddedAudio() {
 }
 
 // Initialize the player
-function initPlayer() {
-    // Initialize with embedded audio for sample tracks
-    initializeWithEmbeddedAudio();
+async function initPlayer() {
+    console.log('Initializing player...');
     
-    // Load any tracks uploaded from the upload page
-    loadUploadedTracks();
+    // Create audio element
+    audio = new Audio();
     
-    // Set initial filtered tracks
-    filteredTracks = [...tracksData];
-    
-    // Render tracks
-    renderTracks(filteredTracks);
+    // Set up audio event listeners
+    audio.addEventListener('timeupdate', updateProgress);
+    audio.addEventListener('loadedmetadata', updateDuration);
+    audio.addEventListener('ended', playNext);
+    audio.addEventListener('error', handleAudioError);
     
     // Set initial volume
     audio.volume = volumeSlider.value;
     
-    // Set up empty playlist UI
+    // Create filtered tracks array
+    filteredTracks = [...tracksData];
+    
+    // Try to load saved playlist
+    await loadPlaylist();
+    
+    // Render tracks and playlist
+    renderTracks(filteredTracks);
     renderPlaylist();
     
-    // Set up event listeners
-    setupEventListeners();
-    
-    // Add upload page link to header if not already there
-    addUploadPageLink();
-    
-    // Setup password protection for the upload link
-    setupUploadLinkPasswordProtection();
-    
-    // Preload the first track if available but don't autoplay
+    // Load first track
     if (filteredTracks.length > 0) {
         loadTrack(filteredTracks[0]);
+    }
+    
+    console.log('Player initialized with', filteredTracks.length, 'tracks and', playlist.length, 'playlist items');
+}
+
+// Handle audio loading errors
+function handleAudioError(e) {
+    console.error('Audio error:', e);
+    
+    // Try to find a fallback track
+    console.log('Attempting to find fallback for current track');
+    const fallbackTrack = findFallbackTrack();
+    
+    if (fallbackTrack) {
+        console.log('Fallback found, loading alternative track');
+        loadTrack(fallbackTrack);
+        showFallbackIndicator('Audio file not found. Playing a fallback track.');
+    } else {
+        console.error('No fallback track available');
+        showFallbackIndicator('Audio file not found and no fallbacks available.');
     }
 }
 
@@ -893,47 +910,62 @@ function updateVolume() {
     audio.volume = volumeSlider.value;
 }
 
-// Add a track to the playlist
+// Add to playlist
 function addToPlaylist(track) {
-    // Check if track is already in playlist
-    if (!playlist.some(t => t.id === track.id)) {
-        playlist.push(track);
-        renderPlaylist();
-        
-        // If this is the first track and no track is playing, load it
-        if (playlist.length === 1 && !isPlaying) {
-            loadTrack(track);
-        }
-    } else {
-        showNotification('Track already in collection');
+    // Check if the track is already in the playlist
+    const isInPlaylist = playlist.some(item => item.id === track.id);
+    if (isInPlaylist) {
+        showNotification("Track is already in your collection");
+        return;
     }
+    
+    playlist.push(track);
+    renderPlaylist();
+    savePlaylist();
+    
+    showNotification(`Added "${track.title}" to your collection`);
 }
 
-// Remove a track from the playlist
+// Remove from playlist
 function removeFromPlaylist(index) {
-    const removedTrack = playlist[index];
     playlist.splice(index, 1);
     renderPlaylist();
+    savePlaylist();
     
-    // If currently playing track was removed, play next track
-    if (currentTrack && removedTrack.id === currentTrack.id) {
-        if (playlist.length > 0) {
-            const nextIndex = Math.min(index, playlist.length - 1);
-            loadTrack(playlist[nextIndex]);
-            playTrack();
-        } else {
-            pauseTrack();
-        }
+    showNotification("Track removed from your collection");
+}
+
+// Clear playlist
+function clearPlaylist() {
+    if (confirm("Are you sure you want to clear your entire collection?")) {
+        playlist = [];
+        renderPlaylist();
+        savePlaylist();
+        
+        showNotification("Collection cleared");
     }
 }
 
-// Clear the entire playlist
-function clearPlaylist() {
-    playlist = [];
-    renderPlaylist();
-    
-    if (isPlaying) {
-        pauseTrack();
+// Save playlist to storage
+async function savePlaylist() {
+    try {
+        await storageService.saveData('playlist', playlist);
+        console.log('Playlist saved to storage');
+    } catch (error) {
+        console.error('Error saving playlist:', error);
+    }
+}
+
+// Load playlist from storage
+async function loadPlaylist() {
+    try {
+        const savedPlaylist = await storageService.loadData('playlist');
+        if (savedPlaylist && Array.isArray(savedPlaylist)) {
+            playlist = savedPlaylist;
+            console.log('Loaded playlist from storage:', playlist.length, 'tracks');
+        }
+    } catch (error) {
+        console.error('Error loading playlist:', error);
     }
 }
 
@@ -1309,4 +1341,22 @@ function showNotification(message) {
 }
 
 // Initialize the player when the DOM is loaded
-document.addEventListener('DOMContentLoaded', initPlayer); 
+document.addEventListener('DOMContentLoaded', async function() {
+    // First try to load tracks from storage
+    await loadUploadedTracks();
+    
+    // Initialize the player
+    await initPlayer();
+    
+    // Set up event listeners
+    setupEventListeners();
+    
+    // Add upload page link to header if not already there
+    addUploadPageLink();
+    
+    // Setup password protection for the upload link
+    setupUploadLinkPasswordProtection();
+    
+    // Initialize with embedded audio for sample tracks if needed
+    initializeWithEmbeddedAudio();
+}); 

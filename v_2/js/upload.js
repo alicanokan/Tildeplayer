@@ -732,116 +732,32 @@ function saveTrackTags() {
     alert('Track tags saved successfully!');
 }
 
-// Approve a track to move it to the approved list
+// Function to approve a track
 function approveTrack() {
     if (selectedTrackIndex === -1) return;
     
-    // Check if title and artist are provided
     const track = pendingTracks[selectedTrackIndex];
     
-    // Debug information to understand the state of the track
-    console.log("Track to approve:", track);
-    console.log("Track mood:", track.mood, "Length:", track.mood.length);
-    console.log("Track genre:", track.genre, "Length:", track.genre.length);
-    console.log("Track duration:", track.duration);
+    // Create a unique filename based on title and artist
+    const cleanTitle = track.title.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_');
+    const cleanArtist = track.artist.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_');
+    const uniqueFileName = `${cleanTitle}_${cleanArtist}_${Date.now()}.mp3`;
     
-    // Get the current selections from the UI - this ensures we're using the latest UI state
-    const selectedMoods = [];
-    moodCheckboxes.forEach(checkbox => {
-        console.log("Mood checkbox:", checkbox.value, "Checked:", checkbox.checked);
-        if (checkbox.checked) {
-            selectedMoods.push(checkbox.value);
-        }
-    });
-    
-    const selectedGenres = [];
-    genreCheckboxes.forEach(checkbox => {
-        console.log("Genre checkbox:", checkbox.value, "Checked:", checkbox.checked);
-        if (checkbox.checked) {
-            selectedGenres.push(checkbox.value);
-        }
-    });
-    
-    // Get the selected duration
-    let selectedDuration = 'short'; // Default
-    durationRadios.forEach(radio => {
-        if (radio.checked) {
-            selectedDuration = radio.value;
-        }
-    });
-    
-    console.log("Selected moods from UI:", selectedMoods);
-    console.log("Selected genres from UI:", selectedGenres);
-    console.log("Selected duration from UI:", selectedDuration);
-    
-    // Check for required fields
-    console.log("Selected moods from UI:", selectedMoods);
-    console.log("Selected genres from UI:", selectedGenres);
-    
-    // Check for required fields
-    if (!trackTitleInput.value.trim() || !trackArtistInput.value.trim()) {
-        alert('Please provide a title and artist for the track before approving.');
-        return;
-    }
-    
-    // Check if at least one mood and one genre are selected
-    if (selectedMoods.length === 0 || selectedGenres.length === 0) {
-        alert('Please select at least one mood and one genre before approving.');
-        return;
-    }
-    
-    // Stop audio playback
-    stopPreviewPlayback();
-    
-    // Create a deep copy of the track to ensure no reference issues
-    const approvedTrack = JSON.parse(JSON.stringify(track));
-    
-    // Update track with the latest form values
-    approvedTrack.title = trackTitleInput.value.trim();
-    approvedTrack.artist = trackArtistInput.value.trim();
-    approvedTrack.mood = selectedMoods;
-    approvedTrack.genre = selectedGenres;
-    approvedTrack.duration = selectedDuration;
-    
-    // Check for valid audioFilePath
-    console.log("Audio file path for approved track:", approvedTrack.audioFilePath);
-    
-    // Ask if user wants to use original filename or generated path
-    const useOriginalFilename = confirm(
-        `Would you like to use the original filename (${approvedTrack.fileName}) instead of a generated name?\n\n` +
-        `Original: @audio/${approvedTrack.fileName}\n` +
-        `Generated: ${approvedTrack.audioFilePath}\n\n` +
-        `Click OK to use original filename, or Cancel to specify a custom path.`
-    );
-    
-    if (useOriginalFilename) {
-        // Use the original filename
-        approvedTrack.audioFilePath = `@audio/${approvedTrack.fileName}`;
-        approvedTrack.useOriginalFilename = true;
-    } else {
-        // Allow user to specify a custom file path if needed
-        const userSpecifiedPath = prompt(
-            'Confirm or edit the audio file path:',
-            approvedTrack.audioFilePath
-        );
-        
-        if (userSpecifiedPath !== null) {
-            // Ensure path starts with @audio/ for consistency
-            approvedTrack.audioFilePath = userSpecifiedPath.startsWith('@audio/') 
-                ? userSpecifiedPath 
-                : '@audio/' + userSpecifiedPath;
-        }
-    }
-    
-    // Check file size and set appropriate flags
-    if (approvedTrack.tooLargeForLocalStorage) {
-        approvedTrack.needsManualCopy = !approvedTrack.directlyCopied;
-    } else {
-        approvedTrack.needsManualCopy = false;
-    }
-    
-    // Log for debugging
-    console.log("Adding track to approved list:", approvedTrack);
+    // Create a track object for the approved list
+    const approvedTrack = {
+        id: track.id || Date.now(),
+        title: track.title,
+        artist: track.artist,
+        src: `assets/tracks/${uniqueFileName}`,
+        albumArt: "assets/images/Tilde_Logo.png",
+        mood: [...track.mood],
+        genre: [...track.genre],
+        duration: track.duration,
+        fileName: track.fileName || track.name,
+        uniqueFileName: uniqueFileName,
+        originalFileName: track.fileName || track.name,
+        fileSize: track.fileSize
+    };
     
     // Add to approved tracks
     approvedTracks.push(approvedTrack);
@@ -849,36 +765,29 @@ function approveTrack() {
     // Remove from pending tracks
     pendingTracks.splice(selectedTrackIndex, 1);
     
-    // Reset the selected track
+    // Reset the selection
     selectedTrackIndex = -1;
     trackTitleInput.value = '';
     trackArtistInput.value = '';
     moodCheckboxes.forEach(checkbox => checkbox.checked = false);
     genreCheckboxes.forEach(checkbox => checkbox.checked = false);
     
-    // Disable the action buttons
+    // Disable buttons
     saveTagsBtn.disabled = true;
     approveTrackBtn.disabled = true;
     deleteTrackBtn.disabled = true;
     previewPlayBtn.disabled = true;
+    
+    // Stop audio if playing
+    stopPreviewPlayback();
     
     // Save the data and refresh the UI
     saveData();
     renderPendingTracks();
     renderApprovedTracks();
     
-    // Show success message with appropriate instructions for large files
-    if (approvedTrack.tooLargeForLocalStorage && !approvedTrack.directlyCopied) {
-        alert(`Track "${approvedTrack.title}" approved, but this is a large file (${approvedTrack.fileSize}).
-You will need to handle this file manually or use the batch copy feature.
-The file should be copied as: ${approvedTrack.audioFilePath}`);
-    } else {
-        alert(`Track "${approvedTrack.title}" successfully approved and moved to the approved list.`);
-    }
-    
-    // Additional debug info
-    console.log('Current approved tracks:', approvedTracks);
-    console.log('Current pending tracks:', pendingTracks);
+    // Show notification
+    showNotification(`Track "${approvedTrack.title}" approved! Don't forget to download it and place it in the assets/tracks directory.`);
 }
 
 // Delete a track from the pending list
@@ -1033,39 +942,12 @@ function renderApprovedTracks() {
         }
         const durationTag = `<span class="tag duration">${durationText}</span>`;
         
-        // Try to get the audio data from localStorage
-        const audioData = track.useOriginalFilename ? localStorage.getItem(`audioFile_${track.fileName}`) : null;
+        // Add download button
+        const downloadButtonHTML = `<button class="download-audio-btn" title="Download this track"><i class="fas fa-download"></i></button>`;
         
-        // Create download button or instructions HTML
-        let downloadButtonHTML = '';
-        let fileStatusHTML = '';
-        
-        if (audioData) {
-            // We have audio data in localStorage - show download button
-            downloadButtonHTML = `
-                <button class="download-audio-btn" data-filename="${track.fileName}" title="Download this audio file to place in the @audio directory">
-                    <i class="fas fa-download"></i>
-                </button>
-            `;
-        } else if (track.directlyCopied) {
-            // File was directly copied to the @audio directory
-            fileStatusHTML = `<p class="file-status success">File directly copied to @audio directory</p>`;
-            downloadButtonHTML = `
-                <button class="copied-btn" title="This file was automatically copied to the @audio directory">
-                    <i class="fas fa-check-circle"></i>
-                </button>
-            `;
-        } else if (track.tooLargeForLocalStorage) {
-            // File was too large for localStorage - show instructions icon
-            downloadButtonHTML = `
-                <button class="audio-instructions-btn" title="This file is too large for browser storage. See instructions for manual handling.">
-                    <i class="fas fa-info-circle"></i>
-                </button>
-            `;
-        }
-        
-        // Get original filename for display
-        const originalFileName = track.originalFileName || track.fileName || track.uniqueFileName || 'Unknown';
+        // Generate the target filename based on uniqueFileName or composed from title and artist
+        const targetFilename = track.uniqueFileName || 
+            `${track.title.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_')}_${track.artist.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_')}.mp3`;
         
         trackItem.innerHTML = `
             <div class="approved-track-info">
@@ -1077,16 +959,12 @@ function renderApprovedTracks() {
                     ${durationTag}
                 </div>
                 <div class="file-path-container">
-                    <p class="file-path">Path: <span class="path-value">${track.audioFilePath || 'No path set'}</span></p>
-                    <button class="edit-path-btn" title="Edit audio file path"><i class="fas fa-edit"></i></button>
+                    <div class="file-path">Save as: <code>${track.src}</code></div>
                 </div>
-                ${track.tooLargeForLocalStorage ? 
-                    `<p class="file-original-name">Original file: <span class="original-filename">${originalFileName}</span></p>` : ''}
-                ${fileStatusHTML}
             </div>
             <div class="approved-track-actions">
                 ${downloadButtonHTML}
-                <button class="remove-btn" title="Move back to pending tracks"><i class="fas fa-undo"></i></button>
+                <button class="remove-btn" title="Remove from approved list"><i class="fas fa-times"></i></button>
             </div>
         `;
         
@@ -1096,52 +974,52 @@ function renderApprovedTracks() {
     // Add event listeners for download buttons
     const downloadButtons = document.querySelectorAll('.download-audio-btn');
     downloadButtons.forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.stopPropagation();
-            const filename = this.dataset.filename;
-            downloadAudioFile(filename);
-        });
+        button.addEventListener('click', handleDownloadTrack);
     });
+}
+
+// Function to handle track downloads
+function handleDownloadTrack(e) {
+    const trackItem = e.target.closest('.approved-track-item');
+    if (!trackItem) return;
     
-    // Add event listeners for info buttons (for large files)
-    const infoButtons = document.querySelectorAll('.audio-instructions-btn');
-    infoButtons.forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.stopPropagation();
-            showLargeFileInstructions();
-        });
-    });
+    const index = parseInt(trackItem.dataset.index);
+    const track = approvedTracks[index];
     
-    // Add event listeners for edit path buttons
-    const editPathButtons = document.querySelectorAll('.edit-path-btn');
-    editPathButtons.forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.stopPropagation();
-            const trackItem = this.closest('.approved-track-item');
-            const index = parseInt(trackItem.dataset.index);
-            const track = approvedTracks[index];
-            const pathValueElement = trackItem.querySelector('.path-value');
-            
-            // Prompt for new path
-            const newPath = prompt('Enter the audio file path:', track.audioFilePath || '');
-            
-            if (newPath !== null) {
-                // Ensure path starts with @audio/ for consistency
-                const formattedPath = newPath.startsWith('@audio/') ? newPath : '@audio/' + newPath;
-                
-                // Update the track
-                track.audioFilePath = formattedPath;
-                
-                // Update the display
-                pathValueElement.textContent = formattedPath;
-                
-                // Save to localStorage
-                saveData();
-                
-                console.log(`Updated path for track "${track.title}" to: ${formattedPath}`);
-            }
-        });
-    });
+    if (!track) {
+        console.error('Track not found for download');
+        return;
+    }
+    
+    if (track.file) {
+        // If we have the original file, download it directly
+        const file = track.file;
+        const filename = track.uniqueFileName || 
+            `${track.title.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_')}_${track.artist.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_')}.mp3`;
+        
+        const url = URL.createObjectURL(file);
+        triggerDownload(url, filename);
+        URL.revokeObjectURL(url);
+    } else if (track.fileUrl) {
+        // If we have a file URL, download from that
+        const filename = track.uniqueFileName || 
+            `${track.title.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_')}_${track.artist.replace(/[^\w\s]/gi, '').replace(/\s+/g, '_')}.mp3`;
+        
+        triggerDownload(track.fileUrl, filename);
+    } else {
+        // No file available, show an error
+        alert(`Sorry, the original file for "${track.title}" is not available for download. You may need to provide the file manually.`);
+    }
+}
+
+// Function to trigger a file download
+function triggerDownload(url, filename) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 }
 
 // Show instructions for handling large files
