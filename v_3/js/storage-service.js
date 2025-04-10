@@ -53,65 +53,177 @@ class StorageService {
         window.storageService = this;
     }
     
-    // Private method to initialize the service
+    /**
+     * Initialize the storage service with saved parameters
+     * @returns {Promise<boolean>} - Whether initialization was successful
+     */
     async _initialize() {
-        console.log('StorageService: Starting initialization');
-        this._initialized = true;
-        
         try {
-            // Load local data first (as fallback)
-            this._loadLocalData();
-            
-            // Try GitHub token validation if we have one
+            this._initialized = false;
+
+            // Get saved values
+            this.GIST_ID = localStorage.getItem('gist-id') || null;
+            this.GITHUB_TOKEN = localStorage.getItem('github-token') || null;
+            this.STORAGE_MODE = this.GIST_ID ? 'gist' : 'local';
+
+            console.log(`Storage mode: ${this.STORAGE_MODE}`);
+
+            // Set validation flags
+            this.hasValidGistSettings = this.GIST_ID && this.GITHUB_TOKEN;
+
+            // Try to log the Gist ID if we have one
+            console.log(`Using Gist ID: ${this.GIST_ID ? this.GIST_ID.substring(0, 8) + '...' : 'None'}`);
             if (this.GITHUB_TOKEN) {
-                const isTokenValid = await this.validateToken(this.GITHUB_TOKEN);
-                if (!isTokenValid) {
-                    console.warn('StorageService: GitHub token validation failed');
-                    // Continue with local storage but set appropriate warning
-                    this.initializationError = {
-                        code: 'INVALID_TOKEN',
-                        message: 'GitHub token validation failed. Check that your token has the correct permissions (gist scope).'
-                    };
+                console.log('GitHub token present, length:', this.GITHUB_TOKEN.length);
+            } else {
+                console.warn('No GitHub token found. Some features may not work properly.');
+            }
+
+            // If we have a Gist ID but no token, warn the user
+            if (this.GIST_ID && !this.GITHUB_TOKEN) {
+                console.error('GitHub Gist ID is set, but no GitHub token was found. Authentication will fail for private Gists.');
+                this._announceError('GitHub token is missing. Authentication will fail for private Gists. Please configure your GitHub token in the settings.');
+                return false;
+            }
+
+            // If we have both, validate the token
+            if (this.hasValidGistSettings) {
+                const tokenValid = await this.validateToken(this.GITHUB_TOKEN);
+                if (!tokenValid) {
+                    console.error('GitHub token validation failed. Storage service will operate in local mode only.');
+                    this._announceError('GitHub token validation failed. Gist operations will not work. Please check your token in the settings.');
+                    this.STORAGE_MODE = 'local';
+                    this.hasValidGistSettings = false;
+                    return false;
                 }
-            } else if (this.STORAGE_MODE === 'gist') {
-                console.warn('StorageService: Gist mode selected but no GitHub token provided');
-                this.initializationError = {
-                    code: 'MISSING_TOKEN',
-                    message: 'GitHub token is required for Gist storage mode. Please add a token in settings.'
-                };
+            }
+
+            this._initialized = true;
+            this._announceReady();
+            return true;
+        } catch (error) {
+            console.error('Failed to initialize storage service:', error);
+            this._announceError(`Storage service initialization failed: ${error.message}`);
+            return false;
+        }
+    }
+    
+    /**
+     * Validates the GitHub token by making a test API call
+     * @param {string} token - The GitHub token to validate
+     * @returns {Promise<boolean>} - Whether the token is valid
+     * @deprecated Use validateToken instead for more comprehensive validation
+     */
+    async validateGitHubToken() {
+        console.warn('validateGitHubToken is deprecated, use validateToken instead');
+        return this.validateToken(this.GITHUB_TOKEN);
+    }
+    
+    // New method to validate a GitHub token
+    async validateToken(token) {
+        try {
+            if (!token) {
+                console.warn('No GitHub token provided for validation');
+                this._announceError('GitHub token is missing. Please add a token in the settings.');
+                return false;
             }
             
-            // Initialize storage
-            await this.initializeStorage();
+            console.log('Validating GitHub token...');
+            const headers = new Headers({
+                'Accept': 'application/vnd.github.v3+json',
+                'Authorization': `token ${token}`,
+                'User-Agent': 'TildePlayer'
+            });
             
-            // Mark as initialized
-            this._initialized = true;
+            // Check if the token is valid
+            const userResponse = await fetch('https://api.github.com/user', { 
+                headers,
+                cache: 'no-store' // Always bypass cache
+            });
             
-            // Announce ready state
-            this._announceReady();
+            if (!userResponse.ok) {
+                console.warn(`Token validation failed: ${userResponse.status} ${userResponse.statusText}`);
+                
+                // Handle different error types
+                if (userResponse.status === 401) {
+                    this._announceError('GitHub token is invalid or expired. Please update your token in the settings.');
+                } else if (userResponse.status === 403) {
+                    const errorData = await userResponse.json().catch(() => ({}));
+                    if (errorData.message && errorData.message.includes('rate limit')) {
+                        this._announceError('GitHub API rate limit exceeded. Please try again later or use a token with higher rate limits.');
+                    } else {
+                        this._announceError('GitHub token does not have required permissions. Please check your token scopes.');
+                    }
+                } else {
+                    this._announceError(`GitHub API error: ${userResponse.status} ${userResponse.statusText}`);
+                }
+                
+                return false;
+            }
+            
+            // Get user data for logging
+            const userData = await userResponse.json();
+            console.log(`GitHub token validated for user: ${userData.login}`);
+            
+            // Check token scopes
+            const gistResponse = await fetch('https://api.github.com/gists', { 
+                headers,
+                cache: 'no-store' // Always bypass cache
+            });
+            
+            if (!gistResponse.ok) {
+                console.warn(`Gist access check failed: ${gistResponse.status} ${gistResponse.statusText}`);
+                this._announceError(`Gist access check failed: ${gistResponse.status} ${gistResponse.statusText}`);
+                return false;
+            }
+            
+            // Check the scopes
+            const scopes = gistResponse.headers.get('X-OAuth-Scopes');
+            
+            if (!scopes || (!scopes.includes('gist') && !scopes.includes('repo'))) {
+                console.warn('Token does not have gist scope. Limited functionality.');
+                
+                // Show a specific notification about scopes
+                this._announceError('Your GitHub token does not have the "gist" permission scope. Please create a new token with gist scope.');
+                
+                return false;
+            }
+            
+            console.log('Token validated successfully with scopes:', scopes);
+            
+            // Update the token valid state
+            this._tokenValid = true;
+            
+            return true;
         } catch (error) {
-            console.error('StorageService: Initialization failed', error);
-            this.initializationError = {
-                code: 'INIT_FAILED',
-                message: `Storage service initialization failed: ${error.message}`
-            };
+            console.error('Error validating token:', error);
             
             // Show error notification
-            if (window.notificationService) {
-                window.notificationService.show(
-                    'Storage Service Error', 
-                    `Failed to initialize storage service: ${error.message}`,
-                    'error',
-                    10000,
-                    // Add callback to open settings
-                    () => {
-                        // Toggle the Gist setup panel to open
-                        const toggleButton = document.querySelector('.gist-setup-toggle');
-                        if (toggleButton) toggleButton.click();
-                    }
-                );
-            }
+            this._announceError(`Error validating GitHub token: ${error.message}. Check your internet connection.`);
+            
+            this._tokenValid = false;
+            return false;
         }
+    }
+    
+    /**
+     * Announces an error to listeners
+     * @param {string} message - Error message
+     * @private
+     */
+    _announceError(message) {
+        console.error(`Storage service error: ${message}`);
+        
+        // Show notification if available
+        if (window.notificationService) {
+            window.notificationService.show('Storage Error', message, 'error', 8000);
+        }
+        
+        // Dispatch event for other components
+        const event = new CustomEvent('storage-error', {
+            detail: { message }
+        });
+        window.dispatchEvent(event);
     }
     
     // Private method to load data from localStorage
@@ -185,34 +297,6 @@ class StorageService {
                 error: this.initializationError
             } 
         }));
-    }
-    
-    // Validate GitHub token
-    async validateGitHubToken() {
-        try {
-            const response = await fetch('https://api.github.com/user', {
-                headers: {
-                    'Authorization': `token ${this.GITHUB_TOKEN}`
-                }
-            });
-
-            if (response.status === 200) {
-                this.tokenValidationStatus = 'valid';
-                return true;
-            } else if (response.status === 401) {
-                this.tokenValidationStatus = 'invalid';
-                return false;
-            } else if (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0') {
-                this.tokenValidationStatus = 'rate_limited';
-                return false;
-            } else {
-                this.tokenValidationStatus = `unexpected_status_${response.status}`;
-                return false;
-            }
-        } catch (error) {
-            this.tokenValidationStatus = `network_error: ${error.message}`;
-            return false;
-        }
     }
     
     // Load tracks from localStorage
@@ -429,86 +513,6 @@ class StorageService {
         return updated;
     }
     
-    // New method to validate a GitHub token
-    async validateToken(token) {
-        try {
-            if (!token) {
-                console.warn('No GitHub token provided for validation');
-                return false;
-            }
-            
-            console.log('Validating GitHub token...');
-            const headers = new Headers({
-                'Accept': 'application/vnd.github.v3+json',
-                'Authorization': `token ${token}`,
-                'User-Agent': 'TildePlayer'
-            });
-            
-            // Check if the token is valid
-            const userResponse = await fetch('https://api.github.com/user', { 
-                headers,
-                cache: 'no-store' // Always bypass cache
-            });
-            
-            if (!userResponse.ok) {
-                console.warn(`Token validation failed: ${userResponse.status} ${userResponse.statusText}`);
-                return false;
-            }
-            
-            // Check token scopes
-            const gistResponse = await fetch('https://api.github.com/gists', { 
-                headers,
-                cache: 'no-store' // Always bypass cache
-            });
-            
-            if (!gistResponse.ok) {
-                console.warn(`Gist access check failed: ${gistResponse.status} ${gistResponse.statusText}`);
-                return false;
-            }
-            
-            // Check the scopes
-            const scopes = gistResponse.headers.get('X-OAuth-Scopes');
-            
-            if (!scopes || (!scopes.includes('gist') && !scopes.includes('repo'))) {
-                console.warn('Token does not have gist scope. Limited functionality.');
-                
-                // Show a specific notification about scopes
-                if (window.notificationService) {
-                    window.notificationService.show(
-                        'Token Permission Issue', 
-                        'Your GitHub token does not have the "gist" permission scope. Some features may not work.',
-                        'warning',
-                        8000
-                    );
-                }
-                
-                return false;
-            }
-            
-            console.log('Token validated successfully with scopes:', scopes);
-            
-            // Update the token valid state
-            this._tokenValid = true;
-            
-            return true;
-        } catch (error) {
-            console.error('Error validating token:', error);
-            
-            // Show error notification
-            if (window.notificationService) {
-                window.notificationService.show(
-                    'Token Validation Error', 
-                    `Error validating GitHub token: ${error.message}. Check your internet connection.`,
-                    'error',
-                    5000
-                );
-            }
-            
-            this._tokenValid = false;
-            return false;
-        }
-    }
-    
     // Test GitHub connection
     async testConnection() {
         try {
@@ -630,30 +634,23 @@ class StorageService {
         if (response.status === 403) {
             // Could be rate limit or permissions
             const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
-            const rateLimitReset = response.headers.get('X-RateLimit-Reset');
-            
             if (rateLimitRemaining === '0') {
-                const resetTime = rateLimitReset ? new Date(parseInt(rateLimitReset) * 1000) : new Date();
+                const resetTime = new Date(parseInt(response.headers.get('X-RateLimit-Reset')) * 1000);
+                error.message = `GitHub API rate limit exceeded. Resets at ${resetTime.toLocaleTimeString()}`;
                 error.code = 'RATE_LIMIT';
-                error.message = `GitHub API rate limit exceeded. Try again after ${resetTime.toLocaleTimeString()} or add a Personal Access Token.`;
             } else {
-                // This is likely a permissions issue
+                error.message = 'GitHub API access forbidden. Check your token permissions.';
                 error.code = 'FORBIDDEN';
-                if (!this.GITHUB_TOKEN) {
-                    error.message = `GitHub API access forbidden (403). A GitHub token is required for this operation.`;
-                } else {
-                    error.message = `GitHub API access forbidden (403). Check that your token has the correct permissions (gist scope).`;
-                }
             }
         } else if (response.status === 404) {
+            error.message = 'Resource not found. Check your Gist ID.';
             error.code = 'NOT_FOUND';
-            error.message = `Gist not found (404). Check your Gist ID or create a new Gist.`;
         } else if (response.status === 401) {
+            error.message = 'Unauthorized. Your GitHub token is invalid or expired.';
             error.code = 'UNAUTHORIZED';
-            error.message = `GitHub authentication failed (401). Your token may be invalid or expired.`;
         } else {
+            error.message = `GitHub API returned unexpected status ${response.status}`;
             error.code = 'API_ERROR';
-            error.message = `GitHub API error during ${operation}: ${response.status} ${response.statusText}`;
         }
         
         return error;
@@ -1736,6 +1733,31 @@ class StorageService {
         return this._initialized || this.STORAGE_MODE === 'local';
     }
 
+    // Check if the service is properly initialized
+    isInitialized() {
+        if (!this._initialized) {
+            console.warn('Storage service is not initialized');
+            
+            if (this.initializationError) {
+                console.error('Initialization error:', this.initializationError);
+                this._announceError(`Storage service not initialized: ${this.initializationError.message}`);
+            } else {
+                this._announceError('Storage service not initialized. Please reload the page or check your settings.');
+            }
+            
+            return false;
+        }
+        
+        // If using Gist mode, also check for valid Gist settings
+        if (this.STORAGE_MODE === 'gist' && !this.hasValidGistSettings) {
+            console.warn('Storage service is initialized but Gist settings are not valid');
+            this._announceError('GitHub Gist configuration is incomplete or invalid. Please check your Gist ID and token.');
+            return false;
+        }
+        
+        return true;
+    }
+
     // Add a method to get detailed status
     getServiceStatus() {
         return {
@@ -1748,6 +1770,155 @@ class StorageService {
             tokenValid: this._tokenValid,
             lastSync: this.SYNC_TIMESTAMP
         };
+    }
+
+    /**
+     * Saves a specific file to the GitHub Gist
+     * @param {string} fileName - The name of the file to save (e.g., 'tracks.json')
+     * @param {string} content - The content to save as a string
+     * @param {string} description - Optional description for the Gist update
+     * @returns {Promise<Object>} - Result object with success flag and message
+     */
+    async saveFileToGist(fileName, content, description = 'Updated by Tildeplayer') {
+        if (!this.isInitialized()) {
+            return { 
+                success: false, 
+                message: 'Storage service not initialized' 
+            };
+        }
+
+        if (!this.hasValidGistSettings) {
+            return { 
+                success: false, 
+                message: 'GitHub Gist not configured. Please set up your Gist ID and GitHub token in settings.' 
+            };
+        }
+
+        try {
+            console.log(`Saving ${fileName} to GitHub Gist...`);
+
+            // Prepare the files object for the GitHub API
+            const files = {};
+            files[fileName] = {
+                content: content
+            };
+
+            // Make the API call to update the Gist
+            const response = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `token ${this.GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    description: description,
+                    files: files
+                })
+            });
+
+            // Handle API response
+            if (response.status === 200) {
+                const data = await response.json();
+                console.log(`Successfully saved ${fileName} to Gist`, data);
+                return {
+                    success: true,
+                    message: `${fileName} successfully saved to GitHub Gist`,
+                    data: data
+                };
+            } else {
+                // Handle different error statuses
+                const errorData = await response.json().catch(() => ({}));
+                let errorMessage = `Failed to save ${fileName} to Gist: ${response.status} ${response.statusText}`;
+                
+                if (response.status === 401) {
+                    errorMessage = 'GitHub token is invalid or expired. Please update your token in settings.';
+                } else if (response.status === 403) {
+                    if (errorData.message && errorData.message.includes('rate limit')) {
+                        errorMessage = 'GitHub API rate limit exceeded. Please try again later.';
+                    } else {
+                        errorMessage = 'GitHub token does not have permission to update this Gist. Ensure your token has the "gist" scope.';
+                    }
+                } else if (response.status === 404) {
+                    errorMessage = 'Gist not found. Please check your Gist ID in settings.';
+                } else if (response.status === 422) {
+                    errorMessage = 'Invalid data for GitHub Gist update. Please check the content format.';
+                }
+                
+                console.error(errorMessage, errorData);
+                
+                // Announce the error
+                this._announceError(errorMessage);
+                
+                return {
+                    success: false,
+                    message: errorMessage,
+                    status: response.status,
+                    errorData: errorData
+                };
+            }
+        } catch (error) {
+            const errorMessage = `Network error while saving ${fileName} to Gist: ${error.message}`;
+            console.error(errorMessage, error);
+            
+            // Announce the error
+            this._announceError(errorMessage);
+            
+            return {
+                success: false,
+                message: errorMessage,
+                error: error
+            };
+        }
+    }
+
+    // Update GitHub token and revalidate
+    async updateToken(newToken) {
+        console.log('Updating GitHub token...');
+        
+        // Validate the new token first
+        const isValid = await this.validateToken(newToken);
+        
+        if (isValid) {
+            // Save the token if it's valid
+            this.GITHUB_TOKEN = newToken;
+            localStorage.setItem('github-token', newToken);
+            
+            // Update validation flags
+            this.hasValidGistSettings = this.GIST_ID && this.GITHUB_TOKEN;
+            this._tokenValid = true;
+            
+            console.log('GitHub token updated successfully');
+            
+            // Show success notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'GitHub Token Updated', 
+                    'Token was validated and saved successfully',
+                    'success',
+                    3000
+                );
+            }
+            
+            // Re-initialize storage with new token
+            this.initializeStorage();
+            
+            return true;
+        } else {
+            console.error('Failed to update GitHub token: validation failed');
+            
+            // Show error notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Token Update Failed', 
+                    'The provided GitHub token is invalid or lacks necessary permissions',
+                    'error',
+                    5000
+                );
+            }
+            
+            return false;
+        }
     }
 }
 

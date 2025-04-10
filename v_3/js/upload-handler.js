@@ -17,19 +17,22 @@ class UploadHandler {
         this.retryCount = 0;
         this.maxRetries = 5;
         
-        // Inject CSS for refresh buttons
+        // Inject CSS for refresh buttons - always do this for all pages
         this.injectRefreshButtonsCSS();
         
         // Wait for storage service to be available
         this.waitForStorageService();
         
-        // Add UI elements
+        // Only enable upload functionality if we're on the upload.html page
+        const isUploadPage = window.location.pathname.includes('upload.html');
+        
+        // Add UI elements - refresh buttons are added to all pages
         this.addRefreshButton();
         
-        // Load tracks data
+        // Load tracks data - needed on all pages
         this.loadTracksData();
         
-        // Make refresh function globally accessible
+        // Make refresh function globally accessible on all pages
         window.refreshTracks = this.refreshTracksData.bind(this);
         
         // Add a global refreshTracksData function that will be accessible from anywhere
@@ -44,8 +47,13 @@ class UploadHandler {
             this.forceRefresh();
         };
         
-        // Initialize the UI
-        this.initUI();
+        // Initialize UI only if we're on the upload page
+        if (isUploadPage) {
+            console.log('On upload page - initializing upload UI');
+            this.initUI();
+        } else {
+            console.log('Not on upload page - skipping upload UI initialization');
+        }
         
         // Announce that the upload handler is ready
         this._announceReady();
@@ -501,8 +509,14 @@ class UploadHandler {
             
             this.tracksData = await response.json();
             
+            // Make sure the global tracksData exists
+            if (typeof window.tracksData === 'undefined') {
+                window.tracksData = [];
+                console.log('Created global tracksData array');
+            }
+            
             // Clear existing tracks array
-            tracksData.length = 0;
+            window.tracksData.length = 0;
             
             // Reinitialize from log
             this.initializeTracksFromLog();
@@ -1392,6 +1406,84 @@ class UploadHandler {
         // Add the button to the controls container
         controlsContainer.appendChild(refreshButton);
         console.log('Force Refresh button added to UI in legacy layout');
+    }
+
+    /**
+     * Manually save tracks data to GitHub Gist
+     * This can be useful when you want to ensure your changes are saved to Gist
+     */
+    async saveToGithubGist() {
+        if (!window.storageService || window.storageService.STORAGE_MODE !== 'gist') {
+            console.warn('GitHub Gist storage not enabled');
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Save Failed',
+                    'GitHub Gist storage is not enabled. Please configure GitHub Gist in settings.',
+                    'error',
+                    4000
+                );
+            }
+            return;
+        }
+        
+        try {
+            // Show loading status
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Saving...',
+                    'Saving track data to GitHub Gist...',
+                    'info',
+                    2000
+                );
+            }
+            
+            // Get the current tracks data
+            const tracksData = await window.storageService.getTracksData();
+            
+            // Convert tracks data to JSON string
+            const tracksJson = JSON.stringify(tracksData, null, 2);
+            
+            // Save to GitHub Gist
+            const result = await window.storageService.saveFileToGist('tracks.json', tracksJson, 'Updated tracks by Tildeplayer');
+            
+            if (result.success) {
+                console.log('Successfully saved tracks data to GitHub Gist:', result);
+                
+                // Show success notification
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Save Successful',
+                        'Successfully saved tracks data to GitHub Gist',
+                        'success',
+                        3000
+                    );
+                }
+            } else {
+                console.error('Failed to save tracks data to GitHub Gist:', result);
+                
+                // Show error notification
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Save Failed',
+                        result.message || 'Failed to save tracks data to GitHub Gist',
+                        'error',
+                        5000
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error saving tracks data to GitHub Gist:', error);
+            
+            // Show error notification
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Save Error',
+                    `Error saving tracks data to GitHub Gist: ${error.message}`,
+                    'error',
+                    5000
+                );
+            }
+        }
     }
 }
 

@@ -527,13 +527,32 @@
         
         showErrorDetails('Validating token...');
         
+        // Use the storage service validation if available
+        if (window.storageService && typeof window.storageService.validateToken === 'function') {
+            window.storageService.validateToken(token)
+                .then(isValid => {
+                    updateTokenStatusUI(isValid, token);
+                })
+                .catch(error => {
+                    console.error('Error during token validation:', error);
+                    showErrorDetails(`Token validation failed: ${error.message}`);
+                    updateTokenStatusUI(false);
+                });
+            return;
+        }
+        
+        // Fallback to local validation if storage service is not available
         const headers = new Headers({
             'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `token ${token}`
+            'Authorization': `token ${token}`,
+            'User-Agent': 'TildePlayer'
         });
         
         // First check if the token is valid at all
-        fetch('https://api.github.com/user', { headers })
+        fetch('https://api.github.com/user', { 
+            headers,
+            cache: 'no-store' // Always bypass cache
+        })
             .then(response => {
                 if (!response.ok) {
                     if (response.status === 401) {
@@ -558,7 +577,10 @@
                 console.log('Token is valid for user:', userData.login);
                 
                 // Now check token scopes
-                return fetch('https://api.github.com/gists', { headers });
+                return fetch('https://api.github.com/gists', { 
+                    headers,
+                    cache: 'no-store' // Always bypass cache
+                });
             })
             .then(response => {
                 // Check the scopes in the response headers
@@ -580,21 +602,7 @@
                         <div>GitHub User: ${userData?.login || 'Unknown'}</div>
                     `);
                     
-                    // Update the token status
-                    const tokenStatus = document.querySelector('.token-status');
-                    if (tokenStatus) {
-                        tokenStatus.className = 'token-status valid';
-                        tokenStatus.textContent = 'Token valid with Gist scope';
-                    }
-                    
-                    // Save the validated token
-                    localStorage.setItem('githubToken', token);
-                    
-                    // Update the storage service if available
-                    if (window.storageService) {
-                        window.storageService.GITHUB_TOKEN = token;
-                        console.log('Updated GitHub token in storage service');
-                    }
+                    updateTokenStatusUI(true, token);
                 } else {
                     showErrorDetailsHTML(`
                         <span style="color: #f44336;">⚠️ Token is valid but does not have Gist scope permissions.</span>
@@ -605,12 +613,7 @@
                         </ul>
                     `);
                     
-                    // Update the token status
-                    const tokenStatus = document.querySelector('.token-status');
-                    if (tokenStatus) {
-                        tokenStatus.className = 'token-status invalid';
-                        tokenStatus.textContent = 'Token missing Gist permissions';
-                    }
+                    updateTokenStatusUI(false);
                 }
                 
                 return response.json();
@@ -619,13 +622,35 @@
                 console.error('Token validation error:', error);
                 showErrorDetails(`Token validation failed: ${error.message}`);
                 
-                // Update the token status to invalid
-                const tokenStatus = document.querySelector('.token-status');
-                if (tokenStatus) {
-                    tokenStatus.className = 'token-status invalid';
-                    tokenStatus.textContent = 'Invalid token';
-                }
+                updateTokenStatusUI(false);
             });
+    }
+    
+    // Helper function to update token status UI
+    function updateTokenStatusUI(isValid, token = null) {
+        // Update the token status
+        const tokenStatus = document.querySelector('.token-status');
+        if (tokenStatus) {
+            tokenStatus.className = 'token-status ' + (isValid ? 'valid' : 'invalid');
+            tokenStatus.textContent = isValid ? 'Token valid with Gist scope' : 'Invalid token';
+        }
+        
+        // Save the validated token if valid
+        if (isValid && token) {
+            localStorage.setItem('githubToken', token);
+            localStorage.setItem('github-token', token); // Ensure compatible with storage-service
+            
+            // Update the storage service if available
+            if (window.storageService) {
+                window.storageService.GITHUB_TOKEN = token;
+                console.log('Updated GitHub token in storage service');
+                
+                // If storage service has a method to update token status, call it
+                if (typeof window.storageService.updateToken === 'function') {
+                    window.storageService.updateToken(token);
+                }
+            }
+        }
     }
     
     // Test connection to the Gist

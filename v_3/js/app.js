@@ -281,22 +281,41 @@ function updateTrackLoadingProgress(percent, status, details) {
 async function loadUploadedTracks() {
     console.log('Loading uploaded tracks...');
     
+    // Ensure tracksData is defined globally
+    if (typeof window.tracksData === 'undefined') {
+        window.tracksData = [];
+        console.log('Created global tracksData array');
+    }
+    
     // Clear existing tracks
-    tracksData = [];
+    window.tracksData.length = 0;
     
     // Try to load from storage first
     let storageTracksFound = false;
     
     try {
-        if (window.storageService && window.storageService.isAvailable()) {
-            const storageTracks = await safeStorageOperation(
-                async () => await storageService.loadData('tracks'),
+        if (window.storageService && typeof window.storageService.isAvailable === 'function' && window.storageService.isAvailable()) {
+            console.log('Storage service is available, attempting to load tracks...');
+            
+            // Define safeStorageOperation locally if it doesn't exist in this scope
+            const localSafeStorageOperation = async (operation, fallbackValue) => {
+                try {
+                    const result = await operation();
+                    return result !== null && result !== undefined ? result : fallbackValue;
+                } catch (error) {
+                    console.error('Storage operation failed:', error);
+                    return fallbackValue;
+                }
+            };
+            
+            const storageTracks = await localSafeStorageOperation(
+                async () => await window.storageService.loadData('tracks'),
                 []
             );
             
             if (storageTracks && storageTracks.length > 0) {
                 console.log(`Loaded ${storageTracks.length} tracks from storage`);
-                tracksData = storageTracks;
+                window.tracksData = storageTracks;
                 storageTracksFound = true;
             } else {
                 console.log('No tracks found in storage');
@@ -304,39 +323,93 @@ async function loadUploadedTracks() {
             
             // If no tracks found and running on GitHub, try to sync from Gist
             if (!storageTracksFound && window.storageService && 
-                window.storageService.isAvailable() && 
+                typeof window.storageService.isRunningOnGitHub === 'function' && 
                 window.storageService.isRunningOnGitHub()) {
                 console.log('Running on GitHub Pages with no local tracks, attempting to sync from Gist...');
                 
-                await safeStorageOperation(
+                await localSafeStorageOperation(
                     async () => await window.storageService.syncFromGistToLocal(),
                     false
                 );
                 
                 // Try to load again after sync
-                const syncedTracks = await safeStorageOperation(
-                    async () => await storageService.loadData('tracks'),
+                const syncedTracks = await localSafeStorageOperation(
+                    async () => await window.storageService.loadData('tracks'),
                     []
                 );
                 
                 if (syncedTracks && syncedTracks.length > 0) {
                     console.log(`Loaded ${syncedTracks.length} tracks after syncing from Gist`);
-                    tracksData = syncedTracks;
+                    window.tracksData = syncedTracks;
                     storageTracksFound = true;
                 }
+            }
+        } else {
+            console.log('Storage service not available or isAvailable method missing, trying local storage directly...');
+            
+            // Try loading directly from localStorage as fallback
+            try {
+                const localTracks = localStorage.getItem('tracks');
+                if (localTracks) {
+                    const parsedTracks = JSON.parse(localTracks);
+                    const tracksArray = Array.isArray(parsedTracks) ? parsedTracks : 
+                                        (parsedTracks.tracks && Array.isArray(parsedTracks.tracks) ? parsedTracks.tracks : []);
+                    
+                    if (tracksArray.length > 0) {
+                        console.log(`Loaded ${tracksArray.length} tracks directly from localStorage`);
+                        window.tracksData = tracksArray;
+                        storageTracksFound = true;
+                    }
+                }
+            } catch (localError) {
+                console.error('Error loading tracks from localStorage:', localError);
             }
         }
     } catch (error) {
         console.error('Error loading tracks from storage:', error);
-        showNotification(
-            'Storage Error', 
-            'Failed to load tracks from storage. Using default tracks.',
-            'warning',
-            5000
-        );
+        if (window.notificationService) {
+            window.notificationService.show(
+                'Storage Error', 
+                'Failed to load tracks from storage. Using default tracks.',
+                'warning',
+                5000
+            );
+        }
     }
     
-    // ... rest of the function ...
+    // If no tracks found from any source, load from assets directory
+    if (!storageTracksFound || window.tracksData.length === 0) {
+        console.log('No tracks found from storage, attempting to scan assets directory...');
+        const assetTracks = await scanAssetsDirectoryForTracks();
+        if (assetTracks && assetTracks.length > 0) {
+            window.tracksData = assetTracks;
+            console.log(`Loaded ${assetTracks.length} tracks from assets directory`);
+        } else {
+            // If still no tracks, use sample tracks as absolute fallback
+            console.log('No tracks found from any source, using sample tracks...');
+            window.tracksData = [...sampleTracks];
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Using Sample Tracks', 
+                    'No tracks found from any source. Using sample tracks as fallback.',
+                    'info',
+                    5000
+                );
+            }
+        }
+    }
+    
+    // Set up global filteredTracks variable if it doesn't exist
+    if (typeof window.filteredTracks === 'undefined') {
+        window.filteredTracks = [...window.tracksData];
+        console.log('Created global filteredTracks array');
+    } else {
+        window.filteredTracks.length = 0;
+        window.tracksData.forEach(track => window.filteredTracks.push(track));
+    }
+    
+    console.log(`Track loading complete. ${window.tracksData.length} tracks loaded.`);
+    return window.tracksData;
 }
 
 // Update the scanAssetsDirectoryForTracks function to include progress updates

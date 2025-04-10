@@ -78,6 +78,91 @@ async function safeStorageOperation(operation, fallbackValue) {
     }
 }
 
+// Make safeStorageOperation available globally
+window.safeStorageOperation = safeStorageOperation;
+
+/**
+ * Debug function to check system state and help diagnose issues
+ * Call this from the console with window.debugTildeSystem()
+ */
+function debugTildeSystem() {
+    console.group('🔍 Tildeplayer System Diagnostics');
+    
+    // Check global variables
+    console.log('🌐 Global Variables:');
+    console.log(`  tracksData: ${typeof window.tracksData !== 'undefined' ? 
+        (Array.isArray(window.tracksData) ? `Array with ${window.tracksData.length} items` : typeof window.tracksData) : 
+        'undefined'}`);
+    console.log(`  filteredTracks: ${typeof window.filteredTracks !== 'undefined' ? 
+        (Array.isArray(window.filteredTracks) ? `Array with ${window.filteredTracks.length} items` : typeof window.filteredTracks) : 
+        'undefined'}`);
+    
+    // Check storage service
+    console.log('💾 Storage Service:');
+    if (window.storageService) {
+        console.log(`  Available: ${typeof window.storageService.isAvailable === 'function' ? 
+            (window.storageService.isAvailable() ? 'Yes' : 'No (service exists but not available)') : 
+            'isAvailable() method missing'}`);
+        console.log(`  Mode: ${window.storageService.STORAGE_MODE || 'unknown'}`);
+        console.log(`  Initialized: ${window.storageService._initialized ? 'Yes' : 'No'}`);
+        console.log(`  Gist ID: ${window.storageService.GIST_ID ? 'Set' : 'Not set'}`);
+        console.log(`  GitHub Token: ${window.storageService.GITHUB_TOKEN ? 'Set' : 'Not set'}`);
+        
+        if (window.storageService.initializationError) {
+            console.log(`  Initialization Error: ${JSON.stringify(window.storageService.initializationError)}`);
+        }
+    } else {
+        console.log('  Storage service is not available');
+    }
+    
+    // Check notification service
+    console.log('🔔 Notification Service:');
+    console.log(`  Available: ${window.notificationService ? 'Yes' : 'No'}`);
+    
+    // Check localStorage
+    console.log('🗃️ localStorage:');
+    try {
+        const tracksDataStr = localStorage.getItem('tracks');
+        if (tracksDataStr) {
+            const parsed = JSON.parse(tracksDataStr);
+            if (Array.isArray(parsed)) {
+                console.log(`  tracks: Array with ${parsed.length} items`);
+            } else if (parsed && parsed.tracks && Array.isArray(parsed.tracks)) {
+                console.log(`  tracks: Object with ${parsed.tracks.length} tracks`);
+            } else {
+                console.log(`  tracks: ${typeof parsed}`);
+            }
+        } else {
+            console.log('  tracks: Not found');
+        }
+        
+        // Check other key localStorage items
+        const knownFiles = localStorage.getItem('knownFiles');
+        console.log(`  knownFiles: ${knownFiles ? 'Found' : 'Not found'}`);
+        
+        const gistId = localStorage.getItem('gist-id');
+        console.log(`  gist-id: ${gistId || 'Not found'}`);
+        
+        const token = localStorage.getItem('github-token');
+        console.log(`  github-token: ${token ? 'Found' : 'Not found'}`);
+    } catch (e) {
+        console.log(`  Error accessing localStorage: ${e.message}`);
+    }
+    
+    // Check key functions
+    console.log('🔧 Functions:');
+    console.log(`  safeStorageOperation: ${typeof window.safeStorageOperation === 'function' ? 'Available' : 'Not available'}`);
+    console.log(`  renderTrackList: ${typeof window.renderTrackList === 'function' ? 'Available' : 'Not available'}`);
+    console.log(`  forceRefresh: ${typeof window.forceRefresh === 'function' ? 'Available' : 'Not available'}`);
+    
+    console.groupEnd();
+    
+    return "Diagnostics complete! Check the console for results.";
+}
+
+// Make debug function globally available
+window.debugTildeSystem = debugTildeSystem;
+
 // Create a global notification service
 class NotificationService {
     constructor() {

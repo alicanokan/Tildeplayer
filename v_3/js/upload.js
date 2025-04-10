@@ -1222,120 +1222,158 @@ function handleApprovedTrackActions(e) {
 
 // Apply approved tracks to the player
 async function applyToPlayer() {
-    if (approvedTracks.length === 0) {
-        alert('There are no approved tracks to apply to the player.');
+    // Check if there are approved tracks
+    if (!approvedTracks || approvedTracks.length === 0) {
+        alert('No approved tracks to apply. Please approve some tracks first.');
         return;
     }
-    
+
     try {
-        // Show loading indicator
-        const applyButton = document.querySelector('#apply-to-player-btn');
-        if (applyButton) {
-            applyButton.textContent = 'Syncing...';
-            applyButton.disabled = true;
-        }
-        
-        console.log(`Applying ${approvedTracks.length} tracks to player...`);
-        
-        // Make sure all tracks have the required fields for the player
+        // Show loading indicator on the apply button
+        const applyButton = document.getElementById('apply-to-player');
+        applyButton.textContent = 'Applying...';
+        applyButton.disabled = true;
+
+        console.log(`Applying ${approvedTracks.length} tracks to player`);
+
+        // Prepare the tracks data to be saved
         const formattedTracks = approvedTracks.map(track => {
-            // Ensure track has all required properties
+            // Ensure we have all required properties
             return {
-                id: track.id,
-                title: track.title || "Unknown Title",
-                artist: track.artist || "Unknown Artist",
-                src: track.src,
-                albumArt: track.albumArt || "assets/images/togg-seeklogo.png",
-                mood: Array.isArray(track.mood) ? track.mood : ["energetic"],
-                genre: Array.isArray(track.genre) ? track.genre : ["electronic"],
-                duration: track.duration === "medium" ? "energetic" : (track.duration || "energetic"),
-                // Include fallback for embedded audio if we have it
-                fallbackSrc: track.fallbackSrc || null,
-                // Add timestamp if not already present
-                dateAdded: track.dateAdded || new Date().toISOString()
+                file: track.file || '',
+                title: track.title || 'Untitled',
+                artist: track.artist || 'Unknown Artist',
+                album: track.album || 'Unknown Album',
+                duration: track.duration || 0,
+                size: track.size || 0,
+                type: track.type || 'audio/mpeg',
+                mood: track.mood || [],
+                genre: track.genre || [],
+                tags: track.tags || [],
+                approved: true,
+                uploaded: track.uploaded || new Date().toISOString(),
+                modified: new Date().toISOString()
             };
         });
-        
-        // Update the local approvedTracks array with the formatted tracks
-        approvedTracks = formattedTracks;
-        
-        console.log(`Using ${approvedTracks.length} formatted tracks for storage...`);
-        
-        // Save all data to various storage mechanisms to ensure consistency
-        
-        // 1. First, save to localStorage directly for immediate availability
+
+        // Save to localStorage first for immediate access
         localStorage.setItem('tracks', JSON.stringify(formattedTracks));
-        localStorage.setItem('approvedTracks', JSON.stringify(formattedTracks));
-        console.log(`Directly saved ${formattedTracks.length} tracks to localStorage`);
+        console.log(`Saved ${formattedTracks.length} tracks to localStorage`);
+
+        // Create JSON string for potential download or storing to Gist
+        const jsonContent = JSON.stringify(formattedTracks, null, 2);
         
-        // 2. Then use storageService to save tracks and ensure they're added to the Gist
-        if (window.storageService) {
-            // Wait for saveApprovedTracks to complete
-            await window.storageService.saveApprovedTracks(formattedTracks);
-            console.log(`Saved ${formattedTracks.length} tracks to approvedTracks collection`);
-            
-            // Explicitly save to main tracks collection as well and wait for completion
-            await window.storageService.saveData('tracks', formattedTracks);
-            console.log(`Saved ${formattedTracks.length} tracks to main tracks collection`);
-            
-            // 3. Perform a comprehensive synchronization to ensure all storage is consistent
-            console.log("Performing comprehensive sync to ensure data consistency across all storage...");
-            const syncResult = await window.storageService.forceSyncAll();
-            
-            if (syncResult.success) {
-                console.log(`Sync successful: ${syncResult.tracks.length} tracks synchronized`);
+        let hasGistSaved = false;
+        
+        // Check if we have proper Gist settings
+        if (window.storageService && window.storageService.hasValidGistSettings) {
+            try {
+                // Use the storage service to save tracks and sync
+                await window.storageService.saveTracks(formattedTracks);
+                console.log('Tracks saved to storage service and synced');
                 
-                // Verify that track counts match what we expect
-                if (syncResult.tracks.length !== formattedTracks.length) {
-                    console.warn(`Track count mismatch after sync: Expected ${formattedTracks.length}, got ${syncResult.tracks.length}`);
-                    
-                    // Re-sync directly to fix any inconsistencies
-                    await window.storageService.saveData('tracks', formattedTracks);
-                    await window.storageService.saveData('approvedTracks', formattedTracks);
-                    
-                    console.log("Re-synchronized track data to fix count mismatch");
+                // Now directly save tracks.json to the Gist
+                await window.storageService.saveFileToGist('tracks.json', jsonContent);
+                console.log('tracks.json file successfully updated in GitHub Gist');
+                hasGistSaved = true;
+                
+                // Show success notification
+                if (window.notificationService) {
+                    window.notificationService.show('Success', 'Tracks applied to player and tracks.json updated in GitHub', 'success', 5000);
                 }
-            } else {
-                console.error("Sync failed:", syncResult.error);
+            } catch (storageError) {
+                console.error('Error using storage service to save tracks:', storageError);
                 
-                // Save directly to Gist as a last resort
-                if (window.storageService.hasValidGistSettings) {
+                // Try direct Gist save as fallback if sync failed
+                if (!hasGistSaved) {
                     try {
-                        await window.storageService.saveToGist('tracks', formattedTracks);
-                        await window.storageService.saveToGist('approvedTracks', formattedTracks);
-                        console.log("Direct Gist save completed as fallback");
-                    } catch (directSaveError) {
-                        console.error("Error during direct Gist save:", directSaveError);
+                        await window.storageService.saveFileToGist('tracks.json', jsonContent);
+                        console.log('Used fallback method to save tracks.json to GitHub Gist');
+                        hasGistSaved = true;
+                    } catch (gistError) {
+                        console.error('Failed to save tracks.json to Gist:', gistError);
+                        // Will fall through to download option
                     }
                 }
             }
-        } else {
-            console.warn("StorageService not available for saving tracks");
         }
         
-        // 4. Verify the data was saved properly by checking localStorage again
+        // Offer download option if Gist save failed or not available
+        if (!hasGistSaved) {
+            console.log('Gist settings unavailable or save failed. Creating download link for tracks.json');
+            downloadJsonFile(jsonContent, 'tracks.json');
+            
+            // Notify user about manual steps needed
+            if (window.notificationService) {
+                window.notificationService.show(
+                    'Manual Action Required', 
+                    'Please upload the downloaded tracks.json file to your GitHub repository',
+                    'warning',
+                    8000
+                );
+            }
+        }
+
+        // Verify tracks were saved to localStorage
         const savedTracks = JSON.parse(localStorage.getItem('tracks') || '[]');
-        console.log(`Final verification: ${savedTracks.length} tracks in localStorage`);
-        
-        // Reset UI
-        if (applyButton) {
-            applyButton.textContent = 'Apply to Player';
-            applyButton.disabled = false;
-        }
-        
-        alert(`Tracks successfully applied to the player! ${formattedTracks.length} tracks have been saved and synchronized.`);
+        console.log(`Verification: ${savedTracks.length} tracks in localStorage after save`);
+
+        // Reset UI state
+        applyButton.textContent = 'Apply to Player';
+        applyButton.disabled = false;
+
     } catch (error) {
         console.error('Error applying tracks to player:', error);
+        alert(`Failed to apply tracks: ${error.message}`);
         
-        // Reset UI
-        const applyButton = document.querySelector('#apply-to-player-btn');
-        if (applyButton) {
-            applyButton.textContent = 'Apply to Player';
-            applyButton.disabled = false;
-        }
-        
-        alert(`Failed to apply tracks to player: ${error.message}. Please try again.`);
+        // Reset button state
+        const applyButton = document.getElementById('apply-to-player');
+        applyButton.textContent = 'Apply to Player';
+        applyButton.disabled = false;
     }
+}
+
+/**
+ * Creates a downloadable link for the JSON file if GitHub save is not available
+ * @param {string} jsonContent - Stringified JSON content
+ * @param {string} filename - Name of the file to download
+ */
+function downloadJsonFile(jsonContent, filename) {
+    const blob = new Blob([jsonContent], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const downloadLink = document.createElement('a');
+    downloadLink.href = url;
+    downloadLink.download = filename;
+    downloadLink.textContent = `Download ${filename}`;
+    downloadLink.className = 'download-json-link';
+    downloadLink.style.display = 'block';
+    downloadLink.style.margin = '10px 0';
+    downloadLink.style.color = '#3498db';
+    
+    // Add instructions for the user
+    const instructions = document.createElement('div');
+    instructions.innerHTML = `
+        <ol style="margin-top: 10px; font-size: 0.9em; color: #555;">
+            <li>Download the JSON file by clicking the link above</li>
+            <li>Place it in the root directory of your GitHub repository</li>
+            <li>Push the changes to GitHub</li>
+        </ol>
+    `;
+    
+    // Find a good place to add the download link
+    const container = document.querySelector('.section-content') || document.body;
+    
+    // Remove any existing download links
+    const existingLinks = document.querySelectorAll('.download-json-link');
+    existingLinks.forEach(link => link.remove());
+    
+    // Add the new link and instructions
+    container.appendChild(downloadLink);
+    container.appendChild(instructions);
+    
+    // Automatically trigger download
+    downloadLink.click();
 }
 
 // Render the pending tracks list
