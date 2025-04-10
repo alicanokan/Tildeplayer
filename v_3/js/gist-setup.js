@@ -6,6 +6,7 @@
 (function() {
     // Check if we already have a Gist ID in local storage
     const savedGistId = localStorage.getItem('gistId');
+    const savedGithubToken = localStorage.getItem('githubToken');
     
     // Function to inject CSS
     function injectCSS() {
@@ -111,6 +112,33 @@
                 text-decoration: underline;
                 cursor: pointer;
             }
+            
+            .token-status {
+                font-size: 12px;
+                margin-top: 5px;
+            }
+            
+            .token-status.valid {
+                color: #4CAF50;
+            }
+            
+            .token-status.invalid {
+                color: #f44336;
+            }
+            
+            .error-details {
+                font-size: 11px;
+                margin-top: 5px;
+                color: #f44336;
+                background-color: #ffebee;
+                padding: 5px;
+                border-radius: 4px;
+                display: none;
+            }
+            
+            .error-details.visible {
+                display: block;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -146,11 +174,27 @@
                     ${savedGistId ? 'Gist ID configured' : 'No Gist ID configured'}
                 </div>
                 
+                <label for="github-token-input">GitHub Personal Access Token (required for private Gists):</label>
+                <input 
+                    type="password" 
+                    id="github-token-input" 
+                    placeholder="github_pat_xxx..."
+                    value="${savedGithubToken || ''}"
+                >
+                <div class="token-status ${savedGithubToken ? 'valid' : ''}">
+                    ${savedGithubToken ? 'Token configured' : 'Required for private Gists or to avoid rate limits'}
+                </div>
+                
+                <div class="error-details" id="error-details"></div>
+                
                 <button id="save-gist-id-btn">Save Gist ID</button>
                 <button id="test-gist-btn">Test Connection</button>
                 
                 <div class="gist-help-link">
                     How to create a GitHub Gist
+                </div>
+                <div class="gist-help-link token-help">
+                    How to create a GitHub Personal Access Token
                 </div>
             </div>
         `;
@@ -168,10 +212,37 @@
         
         setupContainer.querySelector('#save-gist-id-btn').addEventListener('click', () => {
             const gistIdInput = document.getElementById('gist-id-input');
+            const githubTokenInput = document.getElementById('github-token-input');
             const gistId = gistIdInput.value.trim();
+            const githubToken = githubTokenInput.value.trim();
             
             if (gistId) {
                 localStorage.setItem('gistId', gistId);
+                
+                // Save token if provided
+                if (githubToken) {
+                    localStorage.setItem('githubToken', githubToken);
+                    console.log('GitHub token saved (token value hidden for security)');
+                    
+                    // Update token status
+                    const tokenStatus = document.querySelector('.token-status');
+                    if (tokenStatus) {
+                        tokenStatus.className = 'token-status valid';
+                        tokenStatus.textContent = 'Token saved';
+                    }
+                } else {
+                    // Remove any existing token if field is empty
+                    localStorage.removeItem('githubToken');
+                    console.log('GitHub token removed');
+                    
+                    // Update token status
+                    const tokenStatus = document.querySelector('.token-status');
+                    if (tokenStatus) {
+                        tokenStatus.className = 'token-status';
+                        tokenStatus.textContent = 'Required for private Gists or to avoid rate limits';
+                    }
+                }
+                
                 updateGistStatus(true, 'Gist ID saved');
                 updateStorageService(gistId);
             } else {
@@ -193,6 +264,10 @@
         setupContainer.querySelector('.gist-help-link').addEventListener('click', () => {
             window.open('https://docs.github.com/en/github/writing-on-github/editing-and-sharing-content-with-gists/creating-gists', '_blank');
         });
+        
+        setupContainer.querySelector('.token-help').addEventListener('click', () => {
+            window.open('https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token', '_blank');
+        });
     }
     
     // Update the status message
@@ -203,29 +278,88 @@
             statusElement.className = isValid ? 'gist-id-status valid' : 'gist-id-status invalid';
             statusElement.textContent = message;
         }
+        
+        // Clear error details if successful
+        if (isValid) {
+            showErrorDetails('');
+        }
+    }
+    
+    // Show detailed error information
+    function showErrorDetails(errorMessage) {
+        const errorElement = document.getElementById('error-details');
+        if (errorElement) {
+            if (errorMessage) {
+                errorElement.textContent = errorMessage;
+                errorElement.classList.add('visible');
+            } else {
+                errorElement.textContent = '';
+                errorElement.classList.remove('visible');
+            }
+        }
     }
     
     // Test connection to the Gist
     function testGistConnection(gistId) {
         updateGistStatus(true, 'Testing connection...');
+        showErrorDetails(''); // Clear any previous error details
         
-        fetch(`https://api.github.com/gists/${gistId}`)
+        // Get the token if available
+        const token = localStorage.getItem('githubToken');
+        const headers = new Headers({
+            'Accept': 'application/vnd.github.v3+json',
+        });
+        
+        // Add token if available
+        if (token) {
+            headers.append('Authorization', `token ${token}`);
+        }
+        
+        fetch(`https://api.github.com/gists/${gistId}`, { headers })
             .then(response => {
                 if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
+                    if (response.status === 403) {
+                        throw new Error('Forbidden: GitHub API rate limit or authentication issue');
+                    } else if (response.status === 404) {
+                        throw new Error('Gist not found: Check your Gist ID or make sure the Gist is public');
+                    } else if (response.status === 401) {
+                        throw new Error('Unauthorized: Invalid or expired token');
+                    } else {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
                 }
                 return response.json();
             })
             .then(data => {
                 if (data && data.files && data.files['tildeplayer_data.json']) {
                     updateGistStatus(true, 'Connection successful! Gist is properly configured.');
+                    
+                    // Check if it's a private Gist and show appropriate messaging
+                    if (!data.public && !token) {
+                        showErrorDetails('Note: This is a private Gist. You must provide a GitHub token for it to work properly.');
+                    }
                 } else {
                     updateGistStatus(false, 'Gist found but missing tildeplayer_data.json file');
+                    
+                    // Show advice on how to fix it
+                    showErrorDetails('Your Gist needs a file named tildeplayer_data.json. Please add this file with the basic structure shown in the documentation.');
                 }
             })
             .catch(error => {
                 console.error('Error testing Gist connection:', error);
                 updateGistStatus(false, `Connection failed: ${error.message}`);
+                
+                // Show more detailed error information
+                if (error.message.includes('Forbidden')) {
+                    showErrorDetails('A 403 Forbidden error typically means one of three things:\n' +
+                        '1. You are trying to access a private Gist without a token\n' +
+                        '2. You have exceeded GitHub API rate limits (provide a token to increase limits)\n' +
+                        '3. Your token does not have the required permissions (needs Gist read/write)');
+                } else if (error.message.includes('Gist not found')) {
+                    showErrorDetails('Make sure your Gist ID is correct. If this is a private Gist, you must provide a valid GitHub token with Gist access permissions.');
+                } else if (error.message.includes('Unauthorized')) {
+                    showErrorDetails('Your GitHub token is invalid or expired. Please generate a new token with Gist scope permissions.');
+                }
             });
     }
     
@@ -235,18 +369,34 @@
             // Update the Gist ID in the storage service
             window.storageService.GIST_ID = gistId;
             
+            // Update token if available
+            const token = localStorage.getItem('githubToken');
+            if (token) {
+                window.storageService.GITHUB_TOKEN = token;
+            } else {
+                // Clear any existing token
+                window.storageService.GITHUB_TOKEN = null;
+            }
+            
             // Force a sync to test the new Gist ID
             window.storageService.syncFromGistToLocal()
                 .then(success => {
                     if (success) {
                         updateGistStatus(true, 'Gist ID saved and sync successful');
                     } else {
-                        updateGistStatus(false, 'Gist ID saved but sync failed');
+                        updateGistStatus(false, 'Gist ID saved but sync failed. Check your connection and Gist settings.');
                     }
                 })
                 .catch(error => {
                     console.error('Error syncing with new Gist ID:', error);
-                    updateGistStatus(false, 'Error syncing with new Gist ID');
+                    updateGistStatus(false, `Error syncing: ${error.message || 'Unknown error'}`);
+                    
+                    // Show detailed error information
+                    if (error.message && error.message.includes('403')) {
+                        showErrorDetails('Authentication error: If your Gist is private, you need to provide a valid GitHub token with Gist access permissions.');
+                    } else if (error.message && error.message.includes('404')) {
+                        showErrorDetails('Gist not found: Check that your Gist ID is correct and the Gist exists.');
+                    }
                 });
         } else {
             updateGistStatus(false, 'Storage service not available');
@@ -306,6 +456,13 @@
         if (savedGistId) {
             window.storageService.GIST_ID = savedGistId;
             console.log('Loaded Gist ID from local storage:', savedGistId);
+            
+            // Also set token if available
+            if (savedGithubToken) {
+                window.storageService.GITHUB_TOKEN = savedGithubToken;
+                console.log('Loaded GitHub token from local storage (token value hidden for security)');
+            }
+            
             updateGistStatus(true, 'Gist ID configured from local storage');
         }
     }
