@@ -2181,6 +2181,7 @@ function renderTrackList() {
             <div class="track-actions">
                 <button class="play-track-btn"><i class="fas fa-play"></i></button>
                 <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
+                <button class="edit-track-btn" title="Edit track"><i class="fas fa-edit"></i></button>
             </div>
         `;
         
@@ -2285,6 +2286,7 @@ function renderTracks(tracks) {
             <div class="track-actions">
                 <button class="play-track-btn"><i class="fas fa-play"></i></button>
                 <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
+                <button class="edit-track-btn" title="Edit track"><i class="fas fa-edit"></i></button>
             </div>
         `;
         
