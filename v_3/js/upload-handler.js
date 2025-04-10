@@ -1510,6 +1510,22 @@ const uploadHandler = new UploadHandler();
 document.addEventListener('DOMContentLoaded', () => {
     // Check if we're on the upload page - only show upload interface there
     const isUploadPage = window.location.pathname.includes('upload.html');
+    const isIndexPage = window.location.pathname.endsWith('index.html') || 
+                        window.location.pathname.endsWith('/') || 
+                        window.location.pathname.split('/').pop() === '';
+    
+    // Extra safety check to ensure upload box NEVER appears on index page
+    if (isIndexPage) {
+        console.log('On index page - upload box will not be shown');
+        
+        // Find and remove any existing upload zones that might have been created
+        const existingDropZone = document.getElementById('upload-drop-zone');
+        if (existingDropZone) {
+            existingDropZone.parentNode.removeChild(existingDropZone);
+            console.log('Removed existing upload-drop-zone from index page');
+        }
+        return;
+    }
     
     // Only add drop zone on the upload page, not on the main index page
     if (isUploadPage) {
@@ -1524,7 +1540,13 @@ document.addEventListener('DOMContentLoaded', () => {
             <input type="file" id="file-input" accept="audio/*" multiple style="display: none">
         `;
 
-        document.querySelector('.player-container').appendChild(dropZone);
+        const playerContainer = document.querySelector('.player-container');
+        if (playerContainer) {
+            playerContainer.appendChild(dropZone);
+            console.log('Added upload-drop-zone to upload page');
+        } else {
+            console.error('Could not find .player-container to add upload-drop-zone');
+        }
 
         const fileInput = dropZone.querySelector('#file-input');
 

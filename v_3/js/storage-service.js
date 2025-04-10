@@ -6,9 +6,9 @@ class StorageService {
         this.STORAGE_KEY = 'tildeplayer-tracks';
         this.APPROVED_TRACKS_KEY = 'tildeplayer-approved-tracks';
         this.PENDING_TRACKS_KEY = 'tildeplayer-pending-tracks';
-        this.GIST_ID = localStorage.getItem('gist-id') || 'YOUR_GIST_ID_HERE';
-        this.GITHUB_TOKEN = localStorage.getItem('github-token') || '';
-        this.STORAGE_MODE = this.GIST_ID && this.GIST_ID !== 'YOUR_GIST_ID_HERE' ? 'gist' : 'local';
+        this.GIST_ID = localStorage.getItem('gist-id') || null;
+        this.GITHUB_TOKEN = localStorage.getItem('github-token') || null;
+        this.STORAGE_MODE = this.GIST_ID ? 'gist' : 'local';
         this.SYNC_TIMESTAMP = localStorage.getItem('lastGistSync') || null;
         this.isReady = false;
         this.initializationError = null;
@@ -27,6 +27,8 @@ class StorageService {
         this.forceRefreshAfterSync = options.forceRefreshAfterSync || null;
         // Tracks data reference
         this._tracks = [];
+        this._approvedTracks = [];
+        this._pendingTracks = [];
         
         // Check if running on GitHub pages
         this.isGitHub = window.location.hostname.endsWith('github.io');
@@ -69,7 +71,7 @@ class StorageService {
             console.log(`Storage mode: ${this.STORAGE_MODE}`);
 
             // Set validation flags
-            this.hasValidGistSettings = this.GIST_ID && this.GITHUB_TOKEN;
+            this._validGistSettings = this.GIST_ID && this.GITHUB_TOKEN;
 
             // Try to log the Gist ID if we have one
             console.log(`Using Gist ID: ${this.GIST_ID ? this.GIST_ID.substring(0, 8) + '...' : 'None'}`);
@@ -87,13 +89,13 @@ class StorageService {
             }
 
             // If we have both, validate the token
-            if (this.hasValidGistSettings) {
+            if (this._validGistSettings) {
                 const tokenValid = await this.validateToken(this.GITHUB_TOKEN);
                 if (!tokenValid) {
                     console.error('GitHub token validation failed. Storage service will operate in local mode only.');
                     this._announceError('GitHub token validation failed. Gist operations will not work. Please check your token in the settings.');
                     this.STORAGE_MODE = 'local';
-                    this.hasValidGistSettings = false;
+                    this._validGistSettings = false;
                     return false;
                 }
             }
@@ -273,12 +275,12 @@ class StorageService {
         }
         
         // Log storage mode and status
-        console.log("Storage mode:", this.hasValidGistSettings ? "GitHub Gist" : "Local Storage");
+        console.log("Storage mode:", this._validGistSettings ? "GitHub Gist" : "Local Storage");
         
         // Add storage info to the UI if it exists
         const storageInfoElement = document.getElementById('storage-mode-info');
         if (storageInfoElement) {
-            storageInfoElement.textContent = this.hasValidGistSettings ? 
+            storageInfoElement.textContent = this._validGistSettings ? 
                 `GitHub Gist (ID: ${this.GIST_ID.substring(0, 8)}...)` : 
                 'Local Storage';
         }
@@ -572,10 +574,10 @@ class StorageService {
     // Initialize storage and perform any needed syncing
     async initializeStorage() {
         console.log("Initializing storage service");
-        console.log("Storage mode:", this.hasValidGistSettings ? "GitHub Gist" : "Local Storage");
+        console.log("Storage mode:", this._validGistSettings ? "GitHub Gist" : "Local Storage");
         
         // Always try to sync from Gist if we have valid settings
-        if (this.hasValidGistSettings) {
+        if (this._validGistSettings) {
             try {
                 // First ensure the Gist exists and is initialized
                 await this.initializeGist();
@@ -1057,7 +1059,7 @@ class StorageService {
         }
         
         // Always try to save to Gist if we have valid settings, regardless of isGitHub flag
-        if (this.hasValidGistSettings) {
+        if (this._validGistSettings) {
             try {
                 saveSuccess = await this.saveToGist(key, sanitizedData);
                 console.log(`Saved ${key} to Gist:`, saveSuccess);
@@ -1086,7 +1088,7 @@ class StorageService {
         let data = null;
         
         // If we have valid Gist settings, always try to load from Gist first
-        if (this.hasValidGistSettings) {
+        if (this._validGistSettings) {
             try {
                 console.log(`Attempting to load ${key} from Gist...`);
                 data = await this.loadFromGist(key);
@@ -1115,7 +1117,7 @@ class StorageService {
                 this.saveToLocalStorage('tracks', approvedTracks);
                 
                 // Also save to Gist if possible
-                if (this.hasValidGistSettings) {
+                if (this._validGistSettings) {
                     this.saveToGist('tracks', approvedTracks).catch(error => {
                         console.error("Error saving fallback tracks to Gist:", error);
                     });
@@ -1581,7 +1583,7 @@ class StorageService {
         try {
             console.log("Performing comprehensive data synchronization...");
             
-            if (!this.hasValidGistSettings) {
+            if (!this._validGistSettings) {
                 console.log("No valid Gist settings available, skipping Gist sync");
                 return await this.syncTrackCollections();
             }
@@ -1675,7 +1677,8 @@ class StorageService {
 
     // Add an accessor to check if we have valid Gist settings
     get hasValidGistSettings() {
-        return this.GIST_ID && this.GIST_ID !== 'YOUR_GIST_ID_HERE' && this.GITHUB_TOKEN;
+        // Compute and return the value based on current state
+        return this._validGistSettings;
     }
 
     /**
@@ -1701,11 +1704,17 @@ class StorageService {
             localStorage.setItem('gist-id', this.GIST_ID);
             this.STORAGE_MODE = 'gist';
             console.log(`Storage mode set to gist with ID: ${this.GIST_ID}`);
+            
+            // Update the valid settings flag
+            this._validGistSettings = this.GIST_ID && this.GITHUB_TOKEN;
         } else {
             this.GIST_ID = null;
             localStorage.removeItem('gist-id');
             this.STORAGE_MODE = 'local';
             console.log('Storage mode set to local (no Gist ID)');
+            
+            // Update the valid settings flag
+            this._validGistSettings = false;
         }
     }
 
@@ -1718,11 +1727,17 @@ class StorageService {
             this.GITHUB_TOKEN = token.trim();
             localStorage.setItem('github-token', this.GITHUB_TOKEN);
             console.log('GitHub token set for storage service');
+            
+            // Update the valid settings flag
+            this._validGistSettings = this.GIST_ID && this.GITHUB_TOKEN;
         } else {
             this.GITHUB_TOKEN = null;
             localStorage.removeItem('github-token');
             localStorage.removeItem('githubToken');
             console.log('GitHub token removed from storage service');
+            
+            // Update the valid settings flag
+            this._validGistSettings = false;
         }
     }
 
@@ -1885,7 +1900,7 @@ class StorageService {
             localStorage.setItem('github-token', newToken);
             
             // Update validation flags
-            this.hasValidGistSettings = this.GIST_ID && this.GITHUB_TOKEN;
+            this._validGistSettings = this.GIST_ID && this.GITHUB_TOKEN;
             this._tokenValid = true;
             
             console.log('GitHub token updated successfully');
