@@ -1,5 +1,19 @@
 // Music Player App
 
+// Add API service functions at the top of the file
+const API_URL = 'http://localhost:3000/api';
+
+// Import storage service
+import storageService from './storage-service.js';
+
+// API Service functions
+const api = {
+    async getAllTracks() {
+        const response = await fetch(`${API_URL}/tracks`);
+        return response.json();
+    }
+};
+
 // Sample tracks data with embedded audio
 let tracksData = [
     {
@@ -77,70 +91,51 @@ let tracksData = [
 // A very short audio file encoded as base64 data URI (for embedded audio)
 const embeddedAudioData = "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
 
-// Check for tracks uploaded from the upload page
-function loadUploadedTracks() {
-    const playerTracksData = localStorage.getItem('playerTracks');
-    console.log('Checking for uploaded tracks in localStorage...');
+// Modify loadUploadedTracks to use storage service
+async function loadUploadedTracks() {
+    console.log('Loading tracks from storage...');
     
-    if (playerTracksData) {
-        try {
-            const uploadedTracks = JSON.parse(playerTracksData);
-            console.log('Parsed tracks from localStorage:', uploadedTracks);
-            
-            if (uploadedTracks && Array.isArray(uploadedTracks) && uploadedTracks.length > 0) {
-                // Validate each track to ensure it has the required properties
-                const validatedTracks = uploadedTracks.filter(track => {
-                    const isValid = track && 
-                                   typeof track === 'object' && 
-                                   track.id && 
-                                   track.title && 
-                                   track.artist;
-                    
-                    if (!isValid) {
-                        console.error('Invalid track found in uploaded data:', track);
-                    } else {
-                        // Check for @audio directory path
-                        if (track.src && track.src.startsWith('@audio/')) {
-                            console.log(`Track "${track.title}" has a file path in the @audio directory: ${track.src}`);
-                            // Keep the @audio reference
-                        }
-                        // If the track is marked to use embedded audio or has no src, use the embedded audio
-                        else if (track.needsEmbeddedAudio || track.src === 'embedded' || !track.src) {
-                            console.log(`Track "${track.title}" will use embedded audio`);
-                            track.originalSrc = track.src;
-                            track.src = embeddedAudioData;
-                        } else if (track.src && track.src.startsWith('data:')) {
-                            console.log(`Track "${track.title}" has a data URL for audio`);
-                        } else if (track.src && !track.src.startsWith('blob:') && !track.src.startsWith('data:')) {
-                            // If it's a file path (not a blob or data URI), still keep reference but prepare for fallback
-                            console.log(`Track "${track.title}" has a file path for audio`);
-                            track.originalSrc = track.src;
-                        }
-                        
-                        console.log('Valid track found:', track.title, 'by', track.artist);
-                    }
-                    
-                    return isValid;
-                });
+    try {
+        const tracks = await storageService.loadData('tracks');
+        console.log('Loaded tracks:', tracks);
+        
+        if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+            // Validate each track
+            const validatedTracks = tracks.filter(track => {
+                const isValid = track && 
+                               typeof track === 'object' && 
+                               track.id && 
+                               track.title && 
+                               track.artist;
                 
-                // Replace the sample tracks with the validated tracks
-                if (validatedTracks.length > 0) {
-                    tracksData = validatedTracks;
-                    console.log('Loaded', validatedTracks.length, 'valid tracks from upload page');
-                } else {
-                    console.error('No valid tracks found in localStorage data');
+                if (!isValid) {
+                    console.error('Invalid track found:', track);
                 }
+                
+                return isValid;
+            });
+            
+            if (validatedTracks.length > 0) {
+                tracksData = validatedTracks;
+                console.log('Loaded', validatedTracks.length, 'valid tracks');
             } else {
-                console.log('No tracks found in localStorage or data format is invalid');
+                console.error('No valid tracks found');
             }
-        } catch (error) {
-            console.error('Error loading tracks from localStorage:', error);
-            console.error('Raw localStorage data:', typeof playerTracksData === 'string' ? 
-                         (playerTracksData.length > 200 ? playerTracksData.substring(0, 200) + '... [truncated]' : playerTracksData) : 
-                         'Not a string');
+        } else {
+            console.log('No tracks found, using sample tracks');
         }
-    } else {
-        console.log('No playerTracks data found in localStorage, using sample tracks');
+    } catch (error) {
+        console.error('Error loading tracks:', error);
+    }
+}
+
+// Add function to save tracks
+async function saveTracksData() {
+    try {
+        await storageService.saveData('tracks', tracksData);
+        console.log('Tracks saved successfully');
+    } catch (error) {
+        console.error('Error saving tracks:', error);
     }
 }
 

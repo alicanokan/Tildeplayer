@@ -34,6 +34,50 @@ let approvedTracks = [];
 let selectedTrackIndex = -1;
 let isPreviewPlaying = false;
 
+// Add these API service functions at the top of the file
+const API_URL = 'http://localhost:3000/api';
+
+// Import storage service
+import storageService from './storage-service.js';
+
+// API Service functions
+const api = {
+    async getAllTracks() {
+        const response = await fetch(`${API_URL}/tracks`);
+        return response.json();
+    },
+
+    async uploadTrack(file, metadata) {
+        const formData = new FormData();
+        formData.append('audio', file);
+        formData.append('metadata', JSON.stringify(metadata));
+
+        const response = await fetch(`${API_URL}/tracks`, {
+            method: 'POST',
+            body: formData
+        });
+        return response.json();
+    },
+
+    async updateTrack(id, data) {
+        const response = await fetch(`${API_URL}/tracks/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        return response.json();
+    },
+
+    async deleteTrack(id) {
+        const response = await fetch(`${API_URL}/tracks/${id}`, {
+            method: 'DELETE'
+        });
+        return response.json();
+    }
+};
+
 // Initialize the upload page
 function initUploadPage() {
     // Load data from localStorage
@@ -899,227 +943,20 @@ function handleApprovedTrackActions(e) {
 }
 
 // Apply approved tracks to the player
-function applyToPlayer() {
-    // Check if there are approved tracks
+async function applyToPlayer() {
     if (approvedTracks.length === 0) {
         alert('There are no approved tracks to apply to the player.');
         return;
     }
     
-    // Show a loading message
-    const loadingMessage = document.createElement('div');
-    loadingMessage.className = 'loading-message';
-    loadingMessage.innerHTML = '<p>Processing audio files... Please wait.</p><div class="loading-spinner"></div>';
-    document.body.appendChild(loadingMessage);
-    
-    console.log("Preparing", approvedTracks.length, "approved tracks for player");
-    
-    // Track files that need to be manually placed in the @audio directory
-    const manualFiles = [];
-    // Track files that have been directly copied or are available
-    const readyFiles = [];
-    
-    // Prepare the tracks for the player format
-    const playerTracks = approvedTracks.map((track, index) => {
-        // Log the audioFilePath for debugging
-        console.log(`Track "${track.title}" has audioFilePath: ${track.audioFilePath}`);
-        
-        // Determine if this track is available via localStorage or direct copy
-        const isAvailableInLocalStorage = track.useOriginalFilename ? 
-            localStorage.getItem(`audioFile_${track.fileName}`) !== null :
-            (track.uniqueFileName && localStorage.getItem(`audioFile_${track.uniqueFileName}`) !== null);
-        
-        // Determine if this track needs manual file handling
-        const needsManualHandling = track.tooLargeForLocalStorage && 
-                                  !track.directlyCopied && 
-                                  !isAvailableInLocalStorage;
-        
-        if (needsManualHandling) {
-            // Add to manual files list with reference to original filename
-            const fileReference = track.useOriginalFilename ? track.fileName : 
-                                 (track.originalFileName || track.fileName || track.uniqueFileName || track.title);
-            manualFiles.push({
-                title: track.title,
-                path: track.audioFilePath,
-                originalFile: fileReference,
-                useOriginalFilename: track.useOriginalFilename
-            });
-        } else {
-            // Track is ready to be used (either directly copied or small enough for localStorage)
-            readyFiles.push({
-                title: track.title,
-                path: track.audioFilePath,
-                directlyCopied: track.directlyCopied,
-                useOriginalFilename: track.useOriginalFilename
-            });
-        }
-        
-        // Determine the audio source path to use
-        const srcPath = track.audioFilePath || `@audio/${track.uniqueFileName}` || `@audio/${track.fileName}` || 'embedded';
-        
-        console.log(`Using path for track "${track.title}": ${srcPath}`);
-        
-        return {
-            id: index + 1, // Reset IDs to be sequential
-            title: track.title,
-            artist: track.artist,
-            src: srcPath, // Use the audio file path
-            albumArt: "assets/images/Tilde_Logo.png", // Use Tilde Logo as album art
-            mood: track.mood,
-            genre: track.genre,
-            duration: track.duration, // Include duration so it shows correctly on player page
-            needsEmbeddedAudio: srcPath === 'embedded', // Only use embedded if no path exists
-            originalFileName: track.useOriginalFilename ? track.fileName : track.originalFileName, // Include original filename for reference
-            directlyCopied: track.directlyCopied, // Include if the file was directly copied
-            useOriginalFilename: track.useOriginalFilename // Include if original filename is used
-        };
-    });
-    
-    // Store the tracks for the player
     try {
-        localStorage.setItem('playerTracks', JSON.stringify(playerTracks));
-        console.log("Successfully saved playerTracks to localStorage");
-        console.log("Player tracks data:", playerTracks);
-    } catch (e) {
-        console.error("Error saving to localStorage:", e);
-        
-        // If the error is a quota exceeded error, try to save with just the metadata
-        if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
-            console.warn("Storage quota exceeded, saving tracks with file paths only");
-            
-            // Strip unnecessary data to reduce size
-            const minimalTracks = playerTracks.map(track => ({
-                id: track.id,
-                title: track.title,
-                artist: track.artist,
-                src: track.src,
-                mood: track.mood,
-                genre: track.genre,
-                duration: track.duration, // Add duration to minimal tracks as well
-                directlyCopied: track.directlyCopied
-            }));
-            
-            try {
-                localStorage.setItem('playerTracks', JSON.stringify(minimalTracks));
-                console.log("Saved minimal track data to localStorage");
-            } catch (e2) {
-                console.error("Failed to save even minimal track data:", e2);
-                alert("Error: Unable to save track data. Your browser storage may be full. Try clearing browser data.");
-            }
-        }
+        // Save approved tracks to the main tracks storage
+        await storageService.saveData('tracks', approvedTracks);
+        alert('Tracks successfully applied to the player!');
+    } catch (error) {
+        console.error('Error applying tracks to player:', error);
+        alert('Failed to apply tracks to player. Please try again.');
     }
-    
-    // Remove loading message
-    loadingMessage.remove();
-    
-    // Create detailed manual handling instructions if needed
-    let manualInstructions = '';
-    if (manualFiles.length > 0) {
-        manualInstructions = '\n\nYou need to manually place these audio files in the @audio folder:\n\n';
-        
-        manualFiles.forEach((file, index) => {
-            manualInstructions += `${index + 1}. "${file.title}"\n`;
-            manualInstructions += `   - Original file: ${file.originalFile}\n`;
-            manualInstructions += `   - Target path: ${file.path}\n\n`;
-        });
-    }
-    
-    // Create ready files information if any
-    let readyFilesInfo = '';
-    if (readyFiles.length > 0) {
-        readyFilesInfo = '\n\nThese files are ready to use:\n\n';
-        
-        readyFiles.forEach((file, index) => {
-            readyFilesInfo += `${index + 1}. "${file.title}"\n`;
-            readyFilesInfo += `   - Path: ${file.path}\n`;
-            readyFilesInfo += `   - Status: ${file.directlyCopied ? 'Automatically copied to @audio directory' : 'Available via download/localStorage'}\n\n`;
-        });
-    }
-    
-    // Show success message with instructions
-    let message = 'Tracks successfully applied to the player.\n\n';
-    
-    // Add file placement instructions
-    message += 'All audio files must be in the @audio directory located at:\n';
-    message += window.location.pathname.replace('upload.html', '') + '@audio/\n';
-    
-    // Add ready files info if any
-    if (readyFilesInfo) {
-        message += readyFilesInfo;
-    }
-    
-    // Add manual handling instructions if any
-    if (manualInstructions) {
-        message += manualInstructions;
-    }
-    
-    message += '\nGo to the player page to listen to your tracks.';
-    
-    alert(message);
-    
-    // After showing the alert, display a more permanent notice
-    const audioDirectoryNotice = document.createElement('div');
-    audioDirectoryNotice.className = 'audio-directory-notice';
-    
-    if (manualFiles.length > 0) {
-        // Prepare HTML for ready files
-        let readyFilesHtml = '';
-        if (readyFiles.length > 0) {
-            readyFilesHtml = `
-                <h4>Files Ready for Use</h4>
-                <div class="ready-files-list">
-                    ${readyFiles.map((file, index) => `
-                        <div class="ready-file-item">
-                            <p><strong>${index + 1}. "${file.title}"</strong></p>
-                            <p class="file-details">Path: ${file.path}</p>
-                            <p class="file-status ${file.directlyCopied ? 'success' : ''}">
-                                ${file.directlyCopied ? 'Automatically copied to @audio directory' : 'Available via download'}
-                            </p>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        }
-        
-        // Prepare HTML for manual files
-        const manualFilesHtml = manualFiles.map((file, index) => `
-            <div class="manual-file-item">
-                <p><strong>${index + 1}. "${file.title}"</strong></p>
-                <p class="file-details">Original: ${file.originalFile}</p>
-                <p class="file-details">Target: ${file.path}</p>
-            </div>
-        `).join('');
-        
-        audioDirectoryNotice.innerHTML = `
-            <h3>Audio Files Location</h3>
-            <p>Your audio files must be placed in the @audio directory at:</p>
-            <code>${window.location.pathname.replace('upload.html', '')}@audio/</code>
-            
-            ${readyFilesHtml}
-            
-            <h4>Files Needing Manual Placement</h4>
-            <p>These files need to be manually placed in the @audio directory:</p>
-            <div class="manual-files-list">
-                ${manualFilesHtml}
-            </div>
-            <button id="close-notice" class="primary-btn">Got it!</button>
-        `;
-    } else {
-        audioDirectoryNotice.innerHTML = `
-            <h3>Audio Files Location</h3>
-            <p>Your audio files must be placed in the @audio directory at:</p>
-            <code>${window.location.pathname.replace('upload.html', '')}@audio/</code>
-            <p>All your files are ready to use! Some were automatically copied and others are available via download.</p>
-            <button id="close-notice" class="primary-btn">Got it!</button>
-        `;
-    }
-    
-    document.body.appendChild(audioDirectoryNotice);
-    
-    // Add event listener to close button
-    document.getElementById('close-notice').addEventListener('click', function() {
-        audioDirectoryNotice.remove();
-    });
 }
 
 // Render the pending tracks list
@@ -2111,52 +1948,44 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Save data to localStorage
-function saveData() {
+// Modify saveData function to use storage service
+async function saveData() {
     try {
-        localStorage.setItem('pendingTracks', JSON.stringify(pendingTracks));
-        localStorage.setItem('approvedTracks', JSON.stringify(approvedTracks));
-        console.log("Data saved to localStorage:", {
+        // Save both pending and approved tracks
+        await storageService.saveData('pendingTracks', pendingTracks);
+        await storageService.saveData('approvedTracks', approvedTracks);
+        
+        console.log("Data saved successfully:", {
             pendingTracks: pendingTracks.length,
             approvedTracks: approvedTracks.length
         });
     } catch (error) {
-        console.error("Error saving data to localStorage:", error);
+        console.error("Error saving data:", error);
+        alert('Failed to save data. Changes may not persist across sessions.');
     }
 }
 
-// Load data from localStorage
-function loadData() {
+// Modify loadData function to use storage service
+async function loadData() {
     try {
-        const pendingTracksData = localStorage.getItem('pendingTracks');
-        const approvedTracksData = localStorage.getItem('approvedTracks');
+        // Load both pending and approved tracks
+        const loadedPendingTracks = await storageService.loadData('pendingTracks');
+        const loadedApprovedTracks = await storageService.loadData('approvedTracks');
         
-        if (pendingTracksData) {
-            pendingTracks = JSON.parse(pendingTracksData);
-            // Fix invalid blob URLs in pending tracks
-            pendingTracks.forEach(track => {
-                if (track.fileUrl && (
-                    !track.fileUrl.startsWith('blob:') || 
-                    track.fileUrl.startsWith('blob:null/')
-                )) {
-                    console.warn("Track has invalid fileUrl, regenerating preview:", track.fileUrl);
-                    // Create a placeholder URL until the real file is provided again
-                    track.fileUrl = null;
-                    track.previewUnavailable = true;
-                }
-            });
+        if (loadedPendingTracks) {
+            pendingTracks = loadedPendingTracks;
         }
         
-        if (approvedTracksData) {
-            approvedTracks = JSON.parse(approvedTracksData);
+        if (loadedApprovedTracks) {
+            approvedTracks = loadedApprovedTracks;
         }
         
-        console.log("Data loaded from localStorage:", {
+        console.log("Data loaded successfully:", {
             pendingTracks: pendingTracks.length,
             approvedTracks: approvedTracks.length
         });
     } catch (error) {
-        console.error("Error loading data from localStorage:", error);
+        console.error("Error loading data:", error);
         // Initialize with empty arrays if there's an error
         pendingTracks = [];
         approvedTracks = [];
