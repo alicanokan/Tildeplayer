@@ -96,36 +96,72 @@ async function loadUploadedTracks() {
     console.log('Loading tracks from storage...');
     
     try {
+        // Try loading from storage service first
         const tracks = await storageService.loadData('tracks');
-        console.log('Loaded tracks:', tracks);
+        console.log('Loaded tracks from storage service:', tracks);
         
-        if (tracks && Array.isArray(tracks) && tracks.length > 0) {
-            // Validate each track
-            const validatedTracks = tracks.filter(track => {
-                const isValid = track && 
-                               typeof track === 'object' && 
-                               track.id && 
-                               track.title && 
-                               track.artist;
-                
-                if (!isValid) {
-                    console.error('Invalid track found:', track);
-                }
-                
-                return isValid;
-            });
+        // If no tracks from storage service, try localStorage directly
+        if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
+            console.log('No tracks found in storage service, checking localStorage directly...');
             
-            if (validatedTracks.length > 0) {
-                tracksData = validatedTracks;
-                console.log('Loaded', validatedTracks.length, 'valid tracks');
-            } else {
-                console.error('No valid tracks found');
+            try {
+                const localStorageTracks = JSON.parse(localStorage.getItem('tracks'));
+                if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
+                    console.log('Found tracks in localStorage:', localStorageTracks.length);
+                    processLoadedTracks(localStorageTracks);
+                    return;
+                }
+            } catch (localStorageError) {
+                console.error('Error parsing tracks from localStorage:', localStorageError);
             }
-        } else {
-            console.log('No tracks found, using sample tracks');
+            
+            console.log('No tracks found in localStorage either, using sample tracks');
+            return; // Keep the default sample tracks
         }
+        
+        processLoadedTracks(tracks);
     } catch (error) {
         console.error('Error loading tracks:', error);
+        // Try localStorage as fallback
+        try {
+            const localStorageTracks = JSON.parse(localStorage.getItem('tracks'));
+            if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
+                console.log('Using localStorage fallback for tracks:', localStorageTracks.length);
+                processLoadedTracks(localStorageTracks);
+            }
+        } catch (fallbackError) {
+            console.error('Complete failure loading tracks, using sample tracks:', fallbackError);
+        }
+    }
+    
+    // Helper function to process and validate tracks
+    function processLoadedTracks(tracks) {
+        if (!tracks || !Array.isArray(tracks)) {
+            console.log('No valid tracks array, using sample tracks');
+            return;
+        }
+        
+        // Validate each track
+        const validatedTracks = tracks.filter(track => {
+            const isValid = track && 
+                           typeof track === 'object' && 
+                           track.id && 
+                           track.title && 
+                           track.artist;
+            
+            if (!isValid) {
+                console.error('Invalid track found:', track);
+            }
+            
+            return isValid;
+        });
+        
+        if (validatedTracks.length > 0) {
+            tracksData = validatedTracks;
+            console.log('Successfully loaded', validatedTracks.length, 'valid tracks');
+        } else {
+            console.error('No valid tracks found in loaded data');
+        }
     }
 }
 
@@ -1280,6 +1316,8 @@ function showNotification(message) {
 
 // Initialize the player when the DOM is loaded
 document.addEventListener('DOMContentLoaded', async function() {
+    console.log('TildeSoundArt Player v2 - Initializing...');
+    
     // First try to load tracks from storage
     await loadUploadedTracks();
     
@@ -1297,4 +1335,16 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Initialize with embedded audio for sample tracks if needed
     initializeWithEmbeddedAudio();
+    
+    // Save the default sample tracks to storage if no tracks were loaded
+    // This ensures there's always something in storage
+    const trackCount = filteredTracks.length || 0;
+    console.log(`Player initialized with ${trackCount} tracks.`);
+    
+    if (trackCount <= 7 && trackCount > 0) {
+        // If we just have the sample tracks, save them to storage
+        // This ensures they'll be available as fallbacks
+        console.log('Saving sample tracks to storage for future use');
+        await saveTracksData();
+    }
 }); 

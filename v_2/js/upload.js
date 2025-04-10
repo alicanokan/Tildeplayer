@@ -859,9 +859,33 @@ async function applyToPlayer() {
     }
     
     try {
+        console.log("Applying tracks to player:", approvedTracks);
+        
+        // Make sure all tracks have the required fields for the player
+        const formattedTracks = approvedTracks.map(track => {
+            // Ensure track has all required properties
+            return {
+                id: track.id,
+                title: track.title || "Unknown Title",
+                artist: track.artist || "Unknown Artist",
+                src: track.src,
+                albumArt: track.albumArt || "assets/images/Tilde_Logo.png",
+                mood: Array.isArray(track.mood) ? track.mood : ["energetic"],
+                genre: Array.isArray(track.genre) ? track.genre : ["electronic"],
+                duration: track.duration || "medium",
+                // Include fallback for embedded audio if we have it
+                fallbackSrc: track.fallbackSrc || null
+            };
+        });
+        
         // Save approved tracks to the main tracks storage
-        await storageService.saveData('tracks', approvedTracks);
-        alert('Tracks successfully applied to the player!');
+        await storageService.saveData('tracks', formattedTracks);
+        console.log("Tracks successfully saved to storage:", formattedTracks);
+        
+        // Also save to localStorage directly as a fallback
+        localStorage.setItem('tracks', JSON.stringify(formattedTracks));
+        
+        alert('Tracks successfully applied to the player! You can now view them in the Player page.');
     } catch (error) {
         console.error('Error applying tracks to player:', error);
         alert('Failed to apply tracks to player. Please try again.');
@@ -1829,36 +1853,82 @@ function formatFileSize(bytes) {
 // Modify saveData function to use storage service
 async function saveData() {
     try {
-        // Save both pending and approved tracks
+        console.log("Saving data with storage service...");
+        
+        // Save both pending and approved tracks to storage service
         await storageService.saveData('pendingTracks', pendingTracks);
         await storageService.saveData('approvedTracks', approvedTracks);
         
-        console.log("Data saved successfully:", {
+        // Also save to localStorage directly for redundancy
+        localStorage.setItem('pendingTracks', JSON.stringify(pendingTracks));
+        localStorage.setItem('approvedTracks', JSON.stringify(approvedTracks));
+        
+        console.log("Data saved successfully to both storage service and localStorage:", {
             pendingTracks: pendingTracks.length,
             approvedTracks: approvedTracks.length
         });
     } catch (error) {
-        console.error("Error saving data:", error);
-        alert('Failed to save data. Changes may not persist across sessions.');
+        console.error("Error saving data to storage service:", error);
+        
+        // Try localStorage as a fallback
+        try {
+            localStorage.setItem('pendingTracks', JSON.stringify(pendingTracks));
+            localStorage.setItem('approvedTracks', JSON.stringify(approvedTracks));
+            console.log("Data saved to localStorage as fallback");
+        } catch (localStorageError) {
+            console.error("Complete failure - could not save to either storage:", localStorageError);
+            alert('Failed to save data. Changes may not persist across sessions.');
+        }
     }
 }
 
 // Modify loadData function to use storage service
 async function loadData() {
     try {
+        console.log("Attempting to load data from storage...");
+        
         // Load both pending and approved tracks
         const loadedPendingTracks = await storageService.loadData('pendingTracks');
         const loadedApprovedTracks = await storageService.loadData('approvedTracks');
         
-        if (loadedPendingTracks) {
+        console.log("Data from storage service:", {
+            pendingTracks: loadedPendingTracks ? loadedPendingTracks.length : 0,
+            approvedTracks: loadedApprovedTracks ? loadedApprovedTracks.length : 0
+        });
+        
+        // Fall back to localStorage if needed
+        if (!loadedPendingTracks && localStorage.getItem('pendingTracks')) {
+            console.log("Falling back to localStorage for pendingTracks");
+            try {
+                pendingTracks = JSON.parse(localStorage.getItem('pendingTracks')) || [];
+            } catch (e) {
+                console.error("Error parsing pendingTracks from localStorage", e);
+                pendingTracks = [];
+            }
+        } else if (loadedPendingTracks) {
             pendingTracks = loadedPendingTracks;
         }
         
-        if (loadedApprovedTracks) {
+        if (!loadedApprovedTracks && localStorage.getItem('approvedTracks')) {
+            console.log("Falling back to localStorage for approvedTracks");
+            try {
+                approvedTracks = JSON.parse(localStorage.getItem('approvedTracks')) || [];
+            } catch (e) {
+                console.error("Error parsing approvedTracks from localStorage", e);
+                approvedTracks = [];
+            }
+        } else if (loadedApprovedTracks) {
             approvedTracks = loadedApprovedTracks;
         }
         
-        console.log("Data loaded successfully:", {
+        // Validate tracks to make sure they have required properties
+        pendingTracks = pendingTracks.filter(track => 
+            track && typeof track === 'object' && track.id);
+            
+        approvedTracks = approvedTracks.filter(track => 
+            track && typeof track === 'object' && track.id && track.title && track.artist);
+        
+        console.log("Data loaded and validated:", {
             pendingTracks: pendingTracks.length,
             approvedTracks: approvedTracks.length
         });
