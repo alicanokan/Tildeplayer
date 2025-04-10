@@ -687,106 +687,64 @@ function showFallbackIndicator(reason) {
 // Play the current track
 function playTrack() {
     if (!currentTrack) {
-        if (filteredTracks.length > 0) {
-            loadTrack(filteredTracks[0]);
-        } else {
-            console.error('No tracks available to play');
-            return; // No tracks available
-        }
-    }
-    
-    console.log('Attempting to play track:', currentTrack.title, 'by', currentTrack.artist);
-    
-    let playAttempted = false;
-    
-    // Special handling for @audio paths
-    if (currentTrack.src && currentTrack.src.startsWith('@audio/')) {
-        console.log('Playing track from @audio directory:', currentTrack.src);
-        
-        // Convert the @audio/ path to a real URL using the common.js utility
-        const filename = getFilenameFromPath(currentTrack.src);
-        const fullAudioPath = convertAudioPathToUrl(currentTrack.src);
-        
-        console.log(`Converted audio path: ${fullAudioPath}`);
-        
-        // Update the audio source to the full path
-        audio.src = fullAudioPath;
-        
-        audio.play()
-            .then(() => {
-                isPlaying = true;
-                playBtn.innerHTML = '<i class="fas fa-pause"></i>';
-                console.log('Playback started successfully from @audio path');
-                updateCurrentTrackIndicator(); // Update indicator when play starts
-            })
-            .catch(error => {
-                console.error('Error playing audio from @audio path:', error);
-                
-                // If the file doesn't exist or can't be accessed, use embedded audio
-                console.log('Falling back to embedded audio');
-                audio.src = embeddedAudioData;
-                audio.load();
-                
-                // Try again with embedded audio
-                audio.play()
-                    .then(() => {
-                        isPlaying = true;
-                        playBtn.innerHTML = '<i class="fas fa-pause"></i>';
-                        console.log('Playback started with embedded audio');
-                        updateCurrentTrackIndicator(); // Update indicator when play starts
-                        
-                        // Show fallback indicator
-                        showFallbackIndicator(`Audio file "${filename}" not found. Please place it in the @audio directory.`);
-                    })
-                    .catch(innerError => {
-                        console.error('Error playing embedded audio:', innerError);
-                    });
-            });
-        
+        console.error('No track loaded');
         return;
     }
     
-    // Function to try playing with embedded audio if needed
-    const attemptPlay = (useEmbedded = false) => {
-        if (useEmbedded) {
-            console.log('Using embedded audio for playback');
-            // Use the embedded audio
-            audio.src = embeddedAudioData;
-            audio.load();
-        }
-        
-        audio.play()
-            .then(() => {
-                isPlaying = true;
-                playBtn.innerHTML = '<i class="fas fa-pause"></i>';
-                console.log('Playback started successfully');
-                updateCurrentTrackIndicator(); // Update indicator when play starts
-            })
-            .catch(error => {
-                console.error('Error playing audio:', error);
-                
-                // Check if the error is related to format or access
-                if (error.name === 'NotSupportedError' || error.name === 'NetworkError') {
-                    if (!useEmbedded && !playAttempted) {
-                        playAttempted = true;
-                        console.log('Trying with embedded audio...');
-                        attemptPlay(true);
-                    } else {
-                        // If we already tried embedded audio and it still failed
-                        console.error('All fallback attempts failed. Unable to play audio.');
-                        alert('Unable to play audio. There might be an issue with your browser\'s audio support.');
-                    }
-                } else if (error.name === 'NotAllowedError') {
-                    console.error('Playback not allowed. User interaction may be required');
-                    alert('Playback not allowed. Please interact with the page first.');
-                } else if (error.name === 'AbortError') {
-                    console.error('Playback aborted');
-                }
-            });
-    };
+    console.log(`Attempting to play track: ${currentTrack.title} by ${currentTrack.artist}`);
     
-    // Start the first play attempt
-    attemptPlay();
+    // Check if the audio is loaded
+    if (audio.readyState === 0) {
+        console.log('Audio not loaded yet, loading first...');
+        loadTrack(currentTrack);
+    }
+    
+    // Play the audio with error handling
+    const playPromise = audio.play();
+    
+    if (playPromise !== undefined) {
+        playPromise.then(() => {
+            // Playback started successfully
+            console.log('Playback started successfully');
+            isPlaying = true;
+            playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+            updateCurrentTrackIndicator();
+        }).catch(error => {
+            // Playback failed for some reason
+            console.error('Error during playback:', error);
+            
+            // If the error is related to the audio source, try the fallback
+            if (error.name === 'NotSupportedError' || error.name === 'NotFoundError' || 
+                error.message.includes('source') || error.message.includes('load')) {
+                
+                // Try using fallback if available
+                if (currentTrack.fallbackSrc) {
+                    console.log('Using fallback audio source');
+                    audio.src = currentTrack.fallbackSrc;
+                    audio.load();
+                    
+                    // Try playing again
+                    setTimeout(() => {
+                        audio.play().catch(err => {
+                            console.error('Fallback playback failed:', err);
+                            showFallbackIndicator('Failed to play audio even with fallback');
+                        });
+                    }, 500);
+                } else {
+                    // Try a different track
+                    const fallbackTrack = findFallbackTrack();
+                    if (fallbackTrack) {
+                        console.log('Trying a different track as fallback');
+                        loadTrack(fallbackTrack);
+                        playTrack();
+                    } else {
+                        console.error('No fallback track available');
+                        showFallbackIndicator('Unable to play any tracks. Check your audio files.');
+                    }
+                }
+            }
+        });
+    }
 }
 
 // Pause the current track
