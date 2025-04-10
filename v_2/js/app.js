@@ -27,7 +27,7 @@ const sampleTracks = [
         title: "ID Music 1 - TOGG ID MEDIA",
         artist: "TildeSoundArt",
         src: "assets/tracks/ID Music 1 - (TOGG_ID MEDIA _padfuturebass 2).mp3",
-        albumArt: "assets/images/togg-seeklogo.png",
+        albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "intense"],
         genre: ["electronic"],
         duration: "medium"
@@ -37,7 +37,7 @@ const sampleTracks = [
         title: "ID Music 2 - Technology F1",
         artist: "TildeSoundArt",
         src: "assets/tracks/ID Music 2 - (17c-Technology_F1).mp3",
-        albumArt: "assets/images/togg-seeklogo.png",
+        albumArt: "assets/images/Tilde_Logo.png",
         mood: ["focus", "energetic"],
         genre: ["electronic"],
         duration: "medium"
@@ -47,7 +47,7 @@ const sampleTracks = [
         title: "ID Music 3 - TOGG ID MEDIA Piano",
         artist: "TildeSoundArt",
         src: "assets/tracks/ID Music 3 - (14. TOGG_ID MEDIA _Piano3).mp3",
-        albumArt: "assets/images/togg-seeklogo.png",
+        albumArt: "assets/images/Tilde_Logo.png",
         mood: ["chill", "focus"],
         genre: ["classical"],
         duration: "medium"
@@ -57,7 +57,7 @@ const sampleTracks = [
         title: "ID Music 4 - Lofi",
         artist: "TildeSoundArt",
         src: "assets/tracks/ID Music 4 - (9c-Lofi_F1).mp3",
-        albumArt: "assets/images/togg-seeklogo.png",
+        albumArt: "assets/images/Tilde_Logo.png",
         mood: ["chill", "relaxed"],
         genre: ["lofi"],
         duration: "medium"
@@ -67,7 +67,7 @@ const sampleTracks = [
         title: "ID Music 5 - StompRock",
         artist: "TildeSoundArt",
         src: "assets/tracks/ID Music 5 - (16c-StompRock_F1).mp3",
-        albumArt: "assets/images/togg-seeklogo.png",
+        albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "intense"],
         genre: ["rock"],
         duration: "medium"
@@ -77,7 +77,7 @@ const sampleTracks = [
         title: "ID Music 6 - Synthpop",
         artist: "TildeSoundArt",
         src: "assets/tracks/ID Music 6 - (ID_SYNTHPOP_60) 1.mp3",
-        albumArt: "assets/images/togg-seeklogo.png",
+        albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "happy"],
         genre: ["electronic", "pop"],
         duration: "medium"
@@ -87,7 +87,7 @@ const sampleTracks = [
         title: "ID Music 7 - TOGG ID MEDIA Funk", 
         artist: "TildeSoundArt",
         src: "assets/tracks/ID Music 7 - (TOGG_ID MEDIA _Funk).mp3",
-        albumArt: "assets/images/togg-seeklogo.png",
+        albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "happy"],
         genre: ["funk"],
         duration: "medium"
@@ -299,7 +299,7 @@ async function loadUploadedTracks() {
                 artist: "TildeSoundArt",
                 // We'll use the discovered filename patterns
                 src: `assets/tracks/ID Music ${i}- (NEED_SCAN).mp3`,
-                albumArt: "assets/images/togg-seeklogo.png",
+                albumArt: "assets/images/Tilde_Logo.png",
                 mood: ["energetic", "intense"],
                 genre: ["electronic"],
                 duration: "medium",
@@ -2075,7 +2075,7 @@ function loadTrack(trackOrIndex) {
     if (track.albumArt) {
         albumArt.src = track.albumArt;
     }else {
-        albumArt.src = 'assets/images/togg-seeklogo.png';
+        albumArt.src = 'assets/images/Tilde_Logo.png';
     }
     
     // Reset any previous play error flags
