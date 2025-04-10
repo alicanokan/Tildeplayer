@@ -2206,3 +2206,16 @@ async function reloadTracksFromPlayer(showAlerts = true) {
 
 // Initialize the page when DOM is loaded
 document.addEventListener('DOMContentLoaded', initUploadPage); 
+
+// Add this code at the end of the file or near other event listeners
+
+// Event listener for exporting known files list
+document.getElementById('export-known-files-btn')?.addEventListener('click', () => {
+    // Call the global exportAllKnownFiles function defined in app.js
+    if (window.exportAllKnownFiles && typeof window.exportAllKnownFiles === 'function') {
+        window.exportAllKnownFiles();
+        showNotification('Exporting known files list...', 'info');
+    } else {
+        showNotification('Export function not available. Make sure app.js is loaded correctly.', 'error');
+    }
+});

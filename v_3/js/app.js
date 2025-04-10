@@ -17,8 +17,163 @@ const api = {
     }
 };
 
-// Start with an empty tracks array - we'll fill it with real tracks before falling back to samples
+// Initial track list before loading any tracks
+let allTracks = [];
+
+// Track data loaded from JSON
 let tracksData = [];
+
+// A filtered subset of tracks based on user filters
+let filteredTracks = [];
+
+// Functions to manage the known files list
+function loadKnownFiles() {
+    try {
+        // First try to load from knownfiles.json in the assets directory
+        return fetch('assets/tracks/knownfiles.json')
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    throw new Error('Could not load knownfiles.json');
+                }
+            })
+            .then(data => {
+                console.log('Loaded known files from knownfiles.json:', data.length);
+                return data;
+            })
+            .catch(error => {
+                console.log('Could not load from knownfiles.json, trying localStorage:', error);
+                
+                // Fall back to localStorage if the file isn't available
+                const storedFiles = localStorage.getItem('knownFiles');
+                if (storedFiles) {
+                    return JSON.parse(storedFiles);
+                } else {
+                    throw new Error('No known files in localStorage');
+                }
+            })
+            .catch(e => {
+                console.error('Error loading known files from all sources:', e);
+                // Return default list if all else fails
+                return getDefaultKnownFiles();
+            });
+    } catch (e) {
+        console.error('Error in loadKnownFiles:', e);
+        return getDefaultKnownFiles();
+    }
+}
+
+// Function to get the default known files list
+function getDefaultKnownFiles() {
+    return [
+        { index: 1, filename: "ID Music 1 - (TOGG_ID MEDIA _padfuturebass 2).mp3" },
+        { index: 2, filename: "ID Music 2 - (17c-Technology_F1).mp3" },
+        { index: 3, filename: "ID Music 3 - (14. TOGG_ID MEDIA _Piano3).mp3" },
+        { index: 4, filename: "ID Music 4 - (9c-Lofi_F1).mp3" },
+        { index: 5, filename: "ID Music 5 - (16c-StompRock_F1).mp3" },
+        { index: 6, filename: "ID Music 6 - (ID_SYNTHPOP_60) 1.mp3" },
+        { index: 7, filename: "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3" },
+        { index: 8, filename: "ID Music 8 - (1c-Corporate_F1).mp3" },
+        { index: 9, filename: "ID Music 9 - (5c-Optimistic_F1).mp3" },
+        { index: 10, filename: "ID Music 10 - (ID_FUTURISTIC_SPACEY) 1.mp3" },
+        { index: 11, filename: "ID Music 11 - (10c-Logo Synth_Ney_F1).mp3" },
+        { index: 12, filename: "ID Music 12 - (2c-Future Bass_F1).mp3" },
+        { index: 13, filename: "ID Music 13 - (Rock1).mp3" },
+        { index: 14, filename: "ID Music 14 - (Synthwave_1).mp3" },
+        { index: 15, filename: "ID Music 15 - (Corp.Hiphop1).mp3" },
+        { index: 16, filename: "ID Music 16 - (Corp.Hiphop2).mp3" }
+    ];
+}
+
+function saveKnownFiles(knownFiles) {
+    try {
+        // Save to localStorage
+        localStorage.setItem('knownFiles', JSON.stringify(knownFiles));
+        console.log('Saved updated known files list to localStorage');
+        
+        // Also create a downloadable JSON file that can be committed to GitHub
+        exportKnownFilesToJSON(knownFiles);
+        
+        return true;
+    } catch (e) {
+        console.error('Error saving known files to localStorage:', e);
+        return false;
+    }
+}
+
+// Function to export known files to a downloadable JSON file
+function exportKnownFilesToJSON(knownFiles) {
+    const jsonContent = JSON.stringify(knownFiles, null, 2);
+    const blob = new Blob([jsonContent], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const downloadLink = document.createElement('a');
+    downloadLink.href = url;
+    downloadLink.download = 'knownfiles.json';
+    
+    // Show notification with instructions
+    showNotification(`
+        Known files list has been updated. To save for future sessions:
+        1. The knownfiles.json file will download automatically
+        2. Place this file in your assets/tracks directory in your GitHub repository
+        3. Commit and push the changes to GitHub
+    `, 'info', 10000);
+    
+    // Trigger download
+    downloadLink.click();
+    
+    // Clean up
+    URL.revokeObjectURL(url);
+}
+
+// Add a new file to the known files list
+function addKnownFile(filename) {
+    // Load known files first (this is now async)
+    loadKnownFiles().then(knownFiles => {
+        // Find the highest index currently in use
+        const highestIndex = knownFiles.reduce((max, file) => 
+            file.index > max ? file.index : max, 0);
+        
+        // Only add if the file doesn't already exist
+        if (!knownFiles.some(file => file.filename === filename)) {
+            // Create a new entry with the next index
+            const newFile = {
+                index: highestIndex + 1,
+                filename: filename
+            };
+            
+            // Add to the list
+            knownFiles.push(newFile);
+            
+            // Save the updated list
+            saveKnownFiles(knownFiles);
+            console.log(`Added new file to known files list: ${filename} with index ${newFile.index}`);
+            return true;
+        }
+        
+        return false;
+    }).catch(error => {
+        console.error('Error in addKnownFile:', error);
+        return false;
+    });
+}
+
+// Make the addKnownFile function globally accessible
+window.addKnownFile = addKnownFile;
+
+// Function to export all known files (can be called from a button)
+function exportAllKnownFiles() {
+    loadKnownFiles().then(knownFiles => {
+        exportKnownFilesToJSON(knownFiles);
+    }).catch(error => {
+        console.error('Error exporting known files:', error);
+        showNotification('Error exporting known files. See console for details.', 'error');
+    });
+}
+
+// Make this function globally accessible
+window.exportAllKnownFiles = exportAllKnownFiles;
 
 // Sample tracks to use as a fallback if no tracks are found
 const sampleTracks = [
@@ -98,98 +253,12 @@ const sampleTracks = [
 const embeddedAudioData = "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
 
 // Find the loadUploadedTracks function and update it
-function loadUploadedTracks() {
-    console.log("Starting track loading process...");
-    
-    // Step 1: Start by checking the assets directory for tracks
-    scanAssetsDirectoryForTracks()
-        .then(assetsTrackFiles => {
-            console.log(`Found ${assetsTrackFiles.length}track files in assets directory`);
-            
-            // Step 2: Try to load tracks from storage
-            return storageService.loadData('tracks')
-                .then(storedTracks => {
-                    console.log("Successfully loaded tracks from storage:", storedTracks ? storedTracks.length : 0);
-                    
-                    // Merge assets tracks with stored tracks (if any) and process them
-                    processAndUseDiscoveredTracks(assetsTrackFiles, storedTracks || []);
-                })
-                .catch(err => {
-                    console.warn("Failed to load tracks from storage service:", err);
-                    
-                    // Attempt to load from localStorage as a fallback
-                    const localTracksString = localStorage.getItem('tracks');
-                    if (localTracksString) {
-                        try {
-                            const localTracks = JSON.parse(localTracksString);
-                            console.log("Loaded tracks from localStorage:", localTracks.length);
-                            
-                            // Merge assets tracks with local tracks and process them
-                            processAndUseDiscoveredTracks(assetsTrackFiles, localTracks);
-                        }catch (parseErr) {
-                            console.error("Error parsing tracks from localStorage:", parseErr);
-                            processAndUseDiscoveredTracks(assetsTrackFiles, []);
-                        }
-                    }else {
-                        console.log("No tracks found in localStorage");
-                        processAndUseDiscoveredTracks(assetsTrackFiles, []);
-                    }
-                    
-                    // Try to sync from Gist if we're on GitHub Pages
-                    if (window.location.hostname.includes('github.io')) {
-                        storageService.loadFromGist()
-                            .then(gistData => {
-                                if (gistData && gistData.tracks && gistData.tracks.length) {
-                                    console.log("Successfully synced tracks from Gist");
-                                    // We'll reload the page to apply the synced tracks
-                                    showNotification("Tracks synced from cloud storage. Reloading...", "success");
-                                    setTimeout(() => window.location.reload(), 2000);
-                                }
-                            })
-                            .catch(err => console.warn("Failed to sync from Gist:", err));
-                    }
-                });
-        })
-        .catch(err => {
-            console.error("Error scanning assets directory:", err);
-            // If scanning fails, fall back to just loading from storage
-            loadTracksFromStorageOnly();
-        });
-}
-
-// Helper function to scan assets directory for track files
-// Function updated to use async implementation below
 async function loadUploadedTracks() {
     console.log('Loading tracks from storage and directory...');
     let tracksLoaded = false;
     let storageTracksFound = false;
     
-    // Create an array to hold all discovered tracks
-    let allTracks = [];
-    
     try {
-        // First, try synchronizing all track collections
-        console.log('Synchronizing track collections...');
-        const syncResult = await storageService.syncTrackCollections();
-        
-        if (syncResult && syncResult.mainTracks && syncResult.mainTracks.length > 0) {
-            console.log(`Found ${syncResult.mainTracks.length} tracks from synchronized collections`);
-            // Use the synchronized tracks directly
-            tracksData = syncResult.mainTracks;
-            tracksLoaded = true;
-            storageTracksFound = true;
-            
-            // For debugging
-            console.log('Track sources after sync:');
-            syncResult.mainTracks.forEach(track => {
-                console.log(`- ${track.title} by ${track.artist}: ${track.src}`);
-            });
-            
-            return;
-        }
-        
-        // If we didn't get tracks from sync, continue with regular loading
-        
         // First, scan the assets/tracks directory for all MP3 files
         // This ensures all physically present files are always included
         await scanAssetsDirectoryForTracks();
@@ -215,7 +284,7 @@ async function loadUploadedTracks() {
                     storageTracksFound = true;
                     mergeTracksWithoutDuplicates(localStorageTracks);
                 }
-            }catch (localStorageError) {
+            } catch (localStorageError) {
                 console.error('Error parsing tracks from localStorage:', localStorageError);
             }
             
@@ -232,29 +301,16 @@ async function loadUploadedTracks() {
                         storageTracksFound = true;
                         mergeTracksWithoutDuplicates(syncedTracks);
                     }
-                }catch (syncError) {
+                } catch (syncError) {
                     console.error('Error syncing from Gist:', syncError);
                 }
-            }
-        }
-        
-        // As a last attempt, check if there are approvedTracks which should also be in main tracks
-        if (!storageTracksFound) {
-            const approvedTracks = await storageService.loadData('approvedTracks');
-            if (approvedTracks && Array.isArray(approvedTracks) && approvedTracks.length > 0) {
-                console.log('Found tracks in approvedTracks collection:', approvedTracks.length);
-                storageTracksFound = true;
-                mergeTracksWithoutDuplicates(approvedTracks);
-                
-                // Ensure these tracks are saved to the main tracks collection
-                await storageService.saveData('tracks', approvedTracks);
             }
         }
         
         // Process the final merged track list
         processAndUseDiscoveredTracks();
         
-    }catch (error) {
+    } catch (error) {
         console.error('Error loading tracks:', error);
         
         // Try localStorage as fallback
@@ -264,69 +320,55 @@ async function loadUploadedTracks() {
                 console.log('Using localStorage fallback for tracks:', localStorageTracks.length);
                 mergeTracksWithoutDuplicates(localStorageTracks);
                 processAndUseDiscoveredTracks();
-            }else {
+            } else {
                 // If still no tracks, use the sample tracks as a last resort
                 useSampleTracksAsFallback();
             }
-        }catch (fallbackError) {
+        } catch (fallbackError) {
             console.error('Fallback loading failed, using discovered directory tracks:', fallbackError);
             if (allTracks.length > 0) {
                 processAndUseDiscoveredTracks();
-            }else {
+            } else {
                 useSampleTracksAsFallback();
             }
         }
     }
+}
+
+// Helper function to scan assets directory for track files
+// Function updated to use async implementation below
+async function scanAssetsDirectoryForTracks() {
+    console.log('Scanning assets/tracks directory for MP3 files...');
     
-    // Function to scan assets/tracks directory for MP3 files and create track objects
-    async function scanAssetsDirectoryForTracks() {
-        console.log('Scanning assets/tracks directory for MP3 files...');
-        
-        // In a browser context, we can't directly read the file system
-        // Instead, we'll try to discover tracks by checking known file patterns
-        
-        // Start with an empty array (not sample tracks)
-        allTracks = []; 
-        
-        // Create a list of potential track filenames based on naming patterns we see in the directory
-        const potentialTracks = [];
-        
-        // Add tracks for ID Music 1-16 based on the pattern seen in the assets directory
-        for (let i = 1; i <= 16; i++) {
-            potentialTracks.push({
-                id: 100 + i, // Use IDs starting at 101 to avoid conflicts
-                title: `ID Music ${i}`,
-                artist: "TildeSoundArt",
-                // We'll use the discovered filename patterns
-                src: `assets/tracks/ID Music ${i}- (NEED_SCAN).mp3`,
-                albumArt: "assets/images/Tilde_Logo.png",
-                mood: ["energetic", "intense"],
-                genre: ["electronic"],
-                duration: "medium",
-                needsFileDiscovery: true,
-                index: i
-            });
-        }
-        
-        // Real track filenames based on files observed in the directory
-        const knownFiles = [
-            { index: 1, filename: "ID Music 1 - (TOGG_ID MEDIA _padfuturebass 2).mp3" },
-            { index: 2, filename: "ID Music 2 - (17c-Technology_F1).mp3" },
-            { index: 3, filename: "ID Music 3 - (14. TOGG_ID MEDIA _Piano3).mp3" },
-            { index: 4, filename: "ID Music 4 - (9c-Lofi_F1).mp3" },
-            { index: 5, filename: "ID Music 5 - (16c-StompRock_F1).mp3" },
-            { index: 6, filename: "ID Music 6 - (ID_SYNTHPOP_60) 1.mp3" },
-            { index: 7, filename: "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3" },
-            { index: 8, filename: "ID Music 8 - (1c-Corporate_F1).mp3" },
-            { index: 9, filename: "ID Music 9 - (5c-Optimistic_F1).mp3" },
-            { index: 10, filename: "ID Music 10 - (ID_FUTURISTIC_SPACEY) 1.mp3" },
-            { index: 11, filename: "ID Music 11 - (10c-Logo Synth_Ney_F1).mp3" },
-            { index: 12, filename: "ID Music 12 - (2c-Future Bass_F1).mp3" },
-            { index: 13, filename: "ID Music 13 - (Rock1).mp3" },
-            { index: 14, filename: "ID Music 14 - (Synthwave_1).mp3" },
-            { index: 15, filename: "ID Music 15 - (Corp.Hiphop1).mp3" },
-            { index: 16, filename: "ID Music 16 - (Corp.Hiphop2).mp3" }
-        ];
+    // In a browser context, we can't directly read the file system
+    // Instead, we'll try to discover tracks by checking known file patterns
+    
+    // Start with an empty array (not sample tracks)
+    allTracks = []; 
+    
+    // Create a list of potential track filenames based on naming patterns we see in the directory
+    const potentialTracks = [];
+    
+    // Add tracks for ID Music 1-16 based on the pattern seen in the assets directory
+    for (let i = 1; i <= 16; i++) {
+        potentialTracks.push({
+            id: 100 + i, // Use IDs starting at 101 to avoid conflicts
+            title: `ID Music ${i}`,
+            artist: "TildeSoundArt",
+            // We'll use the discovered filename patterns
+            src: `assets/tracks/ID Music ${i}- (NEED_SCAN).mp3`,
+            albumArt: "assets/images/Tilde_Logo.png",
+            mood: ["energetic", "intense"],
+            genre: ["electronic"],
+            duration: "medium",
+            needsFileDiscovery: true,
+            index: i
+        });
+    }
+    
+    try {
+        // Load known files from localStorage or JSON file
+        const knownFiles = await loadKnownFiles();
         
         // Create proper track entries for all known files
         knownFiles.forEach(file => {
@@ -352,254 +394,257 @@ async function loadUploadedTracks() {
             }
         });
         
-        console.log(`Found ${allTracks.length}tracks in the assets directory`);
+        console.log(`Found ${allTracks.length} tracks in the assets directory`);
         
         // Test each track by trying to load it
         for (const track of allTracks) {
             await testTrackExists(track);
         }
+    } catch (error) {
+        console.error('Error loading known files:', error);
+        return [];
     }
+}
+
+// Function to test if a track file actually exists
+async function testTrackExists(track) {
+    if (!track.src) return;
     
-    // Function to test if a track file actually exists
-    async function testTrackExists(track) {
-        if (!track.src) return;
+    return new Promise(resolve => {
+        const audio = new Audio();
         
-        return new Promise(resolve => {
-            const audio = new Audio();
-            
-            // Set a short timeout to avoid hanging if the file doesn't exist
-            const timeout = setTimeout(() => {
-                console.log(`Track file not found: ${track.src}`);
-                track.fileExists = false;
-                resolve(false);
-            }, 500);
-            
-            audio.oncanplaythrough = () => {
-                clearTimeout(timeout);
-                console.log(`Track file exists: ${track.src}`);
-                track.fileExists = true;
-                resolve(true);
-            };
-            
-            audio.onerror = () => {
-                clearTimeout(timeout);
-                console.log(`Track file load error: ${track.src}`);
-                track.fileExists = false;
-                resolve(false);
-            };
-            
-            // Try to load the audio file
-            try {
-                audio.src = track.src;
-                audio.load();
-            }catch (e) {
-                clearTimeout(timeout);
-                console.error(`Error testing track: ${e}`);
-                track.fileExists = false;
-                resolve(false);
-            }
-        });
-    }
-    
-    // Function to use sample tracks as a last resort
-    function useSampleTracksAsFallback() {
-        console.log('No tracks found from any source, using sample tracks as fallback');
+        // Set a short timeout to avoid hanging if the file doesn't exist
+        const timeout = setTimeout(() => {
+            console.log(`Track file not found: ${track.src}`);
+            track.fileExists = false;
+            resolve(false);
+        }, 500);
         
-        // Use sample tracks
-        allTracks = [...sampleTracks];
-        
-        // Also update tracksData directly
-        tracksData = [...sampleTracks];
-        
-        showNotification('Using sample tracks as fallback', 'info');
-    }
-    
-    // Extract a user-friendly title from the filename
-    function getTrackTitle(filename) {
-        // Extract the part in parentheses
-        const matches = filename.match(/\(([^)]+)\)/);
-        if (matches && matches[1]) {
-            return matches[1].replace(/_/g, ' ').trim();
-        }
-        return filename.split(' - ')[1] || filename;
-    }
-    
-    // Assign mood and genre based on filename patterns
-    function assignMoodAndGenreFromFilename(filename) {
-        const lowerFilename = filename.toLowerCase();
-        const result = { 
-            mood: ["energetic"],
-            genre: ["electronic"],
-            duration: "medium" 
+        audio.oncanplaythrough = () => {
+            clearTimeout(timeout);
+            console.log(`Track file exists: ${track.src}`);
+            track.fileExists = true;
+            resolve(true);
         };
         
-        // Detect mood
-        if (lowerFilename.includes('chill') || lowerFilename.includes('lofi')) {
-            result.mood = ["chill", "relaxed"];
-        }else if (lowerFilename.includes('rock')) {
-            result.mood = ["energetic", "intense"];
-            result.genre = ["rock"];
-        }else if (lowerFilename.includes('optimistic')) {
-            result.mood = ["happy", "energetic"];
-        }else if (lowerFilename.includes('funk')) {
-            result.mood = ["energetic", "happy"];
-            result.genre = ["funk"];
-        }else if (lowerFilename.includes('piano')) {
-            result.mood = ["chill", "focus"];
-            result.genre = ["classical"];
-        }else if (lowerFilename.includes('corporate')) {
-            result.mood = ["focus", "energetic"];
-            result.genre = ["electronic"];
-        }else if (lowerFilename.includes('future') || lowerFilename.includes('futuristic')) {
-            result.mood = ["focus", "energetic"];
-            result.genre = ["electronic"];
-        }else if (lowerFilename.includes('synthwave') || lowerFilename.includes('synthpop')) {
-            result.mood = ["intense", "energetic"];
-            result.genre = ["electronic"];
-        }else if (lowerFilename.includes('hiphop')) {
-            result.mood = ["energetic"];
-            result.genre = ["hiphop"];
+        audio.onerror = () => {
+            clearTimeout(timeout);
+            console.log(`Track file load error: ${track.src}`);
+            track.fileExists = false;
+            resolve(false);
+        };
+        
+        // Try to load the audio file
+        try {
+            audio.src = track.src;
+            audio.load();
+        }catch (e) {
+            clearTimeout(timeout);
+            console.error(`Error testing track: ${e}`);
+            track.fileExists = false;
+            resolve(false);
         }
-        
-        // Estimate duration based on typical song lengths
-        result.duration = "medium"; // Default to 30 sec
-        
-        return result;
+    });
+}
+
+// Function to use sample tracks as a last resort
+function useSampleTracksAsFallback() {
+    console.log('No tracks found from any source, using sample tracks as fallback');
+    
+    // Use sample tracks
+    allTracks = [...sampleTracks];
+    
+    // Also update tracksData directly
+    tracksData = [...sampleTracks];
+    
+    showNotification('Using sample tracks as fallback', 'info');
+}
+
+// Extract a user-friendly title from the filename
+function getTrackTitle(filename) {
+    // Extract the part in parentheses
+    const matches = filename.match(/\(([^)]+)\)/);
+    if (matches && matches[1]) {
+        return matches[1].replace(/_/g, ' ').trim();
+    }
+    return filename.split(' - ')[1] || filename;
+}
+
+// Assign mood and genre based on filename patterns
+function assignMoodAndGenreFromFilename(filename) {
+    const lowerFilename = filename.toLowerCase();
+    const result = { 
+        mood: ["energetic"],
+        genre: ["electronic"],
+        duration: "medium" 
+    };
+    
+    // Detect mood
+    if (lowerFilename.includes('chill') || lowerFilename.includes('lofi')) {
+        result.mood = ["chill", "relaxed"];
+    }else if (lowerFilename.includes('rock')) {
+        result.mood = ["energetic", "intense"];
+        result.genre = ["rock"];
+    }else if (lowerFilename.includes('optimistic')) {
+        result.mood = ["happy", "energetic"];
+    }else if (lowerFilename.includes('funk')) {
+        result.mood = ["energetic", "happy"];
+        result.genre = ["funk"];
+    }else if (lowerFilename.includes('piano')) {
+        result.mood = ["chill", "focus"];
+        result.genre = ["classical"];
+    }else if (lowerFilename.includes('corporate')) {
+        result.mood = ["focus", "energetic"];
+        result.genre = ["electronic"];
+    }else if (lowerFilename.includes('future') || lowerFilename.includes('futuristic')) {
+        result.mood = ["focus", "energetic"];
+        result.genre = ["electronic"];
+    }else if (lowerFilename.includes('synthwave') || lowerFilename.includes('synthpop')) {
+        result.mood = ["intense", "energetic"];
+        result.genre = ["electronic"];
+    }else if (lowerFilename.includes('hiphop')) {
+        result.mood = ["energetic"];
+        result.genre = ["hiphop"];
     }
     
-    // Merge tracks without creating duplicates
-    function mergeTracksWithoutDuplicates(newTracks) {
-        if (!newTracks || !Array.isArray(newTracks)) return;
+    // Estimate duration based on typical song lengths
+    result.duration = "medium"; // Default to 30 sec
+    
+    return result;
+}
+
+// Merge tracks without creating duplicates
+function mergeTracksWithoutDuplicates(newTracks) {
+    if (!newTracks || !Array.isArray(newTracks)) return;
+    
+    newTracks.forEach(newTrack => {
+        // Check if this track already exists in our list
+        const exists = allTracks.some(track => 
+            track.id === newTrack.id || 
+            (track.title === newTrack.title && track.artist === newTrack.artist)
+        );
         
-        newTracks.forEach(newTrack => {
-            // Check if this track already exists in our list
-            const exists = allTracks.some(track => 
-                track.id === newTrack.id || 
-                (track.title === newTrack.title && track.artist === newTrack.artist)
-            );
-            
-            if (!exists) {
-                allTracks.push(newTrack);
-            }
-        });
+        if (!exists) {
+            allTracks.push(newTrack);
+        }
+    });
+}
+
+// Process all tracks we've discovered and use them
+function processAndUseDiscoveredTracks() {
+    if (allTracks.length === 0) {
+        console.log('No tracks discovered, using sample tracks as fallback');
+        useSampleTracksAsFallback();
+        return;
     }
     
-    // Process all tracks we've discovered and use them
-    function processAndUseDiscoveredTracks() {
-        if (allTracks.length === 0) {
-            console.log('No tracks discovered, using sample tracks as fallback');
-            useSampleTracksAsFallback();
-            return;
+    // Clean up any problematic src paths
+    allTracks = cleanupTrackSrcPaths(allTracks);
+    
+    // Validate each track
+    const validatedTracks = allTracks.filter(track => {
+        const isValid = track && 
+                       typeof track === 'object' && 
+                       track.id && 
+                       track.title && 
+                       track.artist;
+        
+        if (!isValid) {
+            console.error('Invalid track found:', track);
         }
         
-        // Clean up any problematic src paths
-        allTracks = cleanupTrackSrcPaths(allTracks);
+        return isValid;
+    });
+    
+    if (validatedTracks.length > 0) {
+        tracksData = validatedTracks;
+        console.log('Successfully loaded', validatedTracks.length, 'valid tracks');
         
-        // Validate each track
-        const validatedTracks = allTracks.filter(track => {
-            const isValid = track && 
-                           typeof track === 'object' && 
-                           track.id && 
-                           track.title && 
-                           track.artist;
-            
-            if (!isValid) {
-                console.error('Invalid track found:', track);
-            }
-            
-            return isValid;
-        });
+        // Save these tracks back to storage to ensure consistency
+        storageService.saveData('tracks', validatedTracks);
         
-        if (validatedTracks.length > 0) {
-            tracksData = validatedTracks;
-            console.log('Successfully loaded', validatedTracks.length, 'valid tracks');
-            
-            // Save these tracks back to storage to ensure consistency
-            storageService.saveData('tracks', validatedTracks);
-            
-            // Also save as approvedTracks to ensure they're visible in the upload page
-            storageService.saveData('approvedTracks', validatedTracks);
-            
-            // Show notification about the loaded tracks
-            const newTrackCount = validatedTracks.length - tracksData.length;
-            if (newTrackCount > 0) {
-                showNotification(`Loaded ${validatedTracks.length}tracks (${newTrackCount} new)`);
-            }else {
-                showNotification(`Loaded ${validatedTracks.length}tracks from all sources`);
-            }
+        // Also save as approvedTracks to ensure they're visible in the upload page
+        storageService.saveData('approvedTracks', validatedTracks);
+        
+        // Show notification about the loaded tracks
+        const newTrackCount = validatedTracks.length - tracksData.length;
+        if (newTrackCount > 0) {
+            showNotification(`Loaded ${validatedTracks.length}tracks (${newTrackCount} new)`);
         }else {
-            console.error('No valid tracks found in loaded data');
-            useSampleTracksAsFallback();
+            showNotification(`Loaded ${validatedTracks.length}tracks from all sources`);
         }
+    }else {
+        console.error('No valid tracks found in loaded data');
+        useSampleTracksAsFallback();
     }
+}
+
+// Function to clean up track src paths with problematic formats
+function cleanupTrackSrcPaths(tracks) {
+    if (!tracks || !Array.isArray(tracks)) return tracks;
     
-    // Function to clean up track src paths with problematic formats
-    function cleanupTrackSrcPaths(tracks) {
-        if (!tracks || !Array.isArray(tracks)) return tracks;
+    // Create a mapping of known tracks with their exact filenames
+    const exactFilenameMappings = {
+        "ID Music 2 - Technology F1": "ID Music 2 - (17c-Technology_F1).mp3",
+        "ID Music 7 - TOGG ID MEDIA Funk": "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3"
+    };
+    
+    return tracks.map(track => {
+        // Clone the track to avoid modifying the original
+        const cleanTrack = {...track};
         
-        // Create a mapping of known tracks with their exact filenames
-        const exactFilenameMappings = {
-            "ID Music 2 - Technology F1": "ID Music 2 - (17c-Technology_F1).mp3",
-            "ID Music 7 - TOGG ID MEDIA Funk": "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3"
-        };
-        
-        return tracks.map(track => {
-            // Clone the track to avoid modifying the original
-            const cleanTrack = {...track};
-            
-            // Special case for tracks with known exact filenames
-            if (exactFilenameMappings[track.title]) {
-                console.log(`Special handling for track: "${track.title}"`);
-                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
-                cleanTrack.src = `${baseDir}${exactFilenameMappings[track.title]}`;
-                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
-                return cleanTrack;
-            }
-            
-            // Special case for the ID Music 2 track - always use the original filename with spaces and parentheses
-            if (cleanTrack.title === "ID Music 2 - Technology F1" || 
-                (cleanTrack.src && cleanTrack.src.includes("ID_Music_2_17cTechnology_F1"))) {
-                
-                console.log(`Special handling for ID Music 2 track`);
-                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
-                cleanTrack.src = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
-                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
-                return cleanTrack;
-            }
-            
-            // Special case for ID Music 7 track
-            if (cleanTrack.title === "ID Music 7 - TOGG ID MEDIA Funk" || 
-                (cleanTrack.src && cleanTrack.src.includes("ID_Music_7_TOGG_ID_MEDIA__Funk"))) {
-                
-                console.log(`Special handling for ID Music 7 track`);
-                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
-                cleanTrack.src = `${baseDir}ID Music 7 - (TOGG_ID MEDIA _Funk).mp3`;
-                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
-                return cleanTrack;
-            }
-            
-            // Check if the src has the problematic pattern
-            if (cleanTrack.src && cleanTrack.src.includes('_Unknown_Artist_')) {
-                console.log(`Cleaning up problematic track src: ${cleanTrack.src}`);
-                
-                // Extract the base name and directory
-                const srcParts = cleanTrack.src.split('/');
-                const fileName = srcParts[srcParts.length - 1];
-                
-                // Get the base directory (everything before the filename)
-                const baseDir = srcParts.slice(0, -1).join('/');
-                
-                // Get the title part before _Unknown_Artist_
-                const titlePart = fileName.split('_Unknown_Artist_')[0];
-                
-                // Create clean src path
-                cleanTrack.src = `${baseDir}/${titlePart}.mp3`;
-                console.log(`Updated track src to: ${cleanTrack.src}`);
-            }
-            
+        // Special case for tracks with known exact filenames
+        if (exactFilenameMappings[track.title]) {
+            console.log(`Special handling for track: "${track.title}"`);
+            const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+            cleanTrack.src = `${baseDir}${exactFilenameMappings[track.title]}`;
+            console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
             return cleanTrack;
-        });
-    }
+        }
+        
+        // Special case for the ID Music 2 track - always use the original filename with spaces and parentheses
+        if (cleanTrack.title === "ID Music 2 - Technology F1" || 
+            (cleanTrack.src && cleanTrack.src.includes("ID_Music_2_17cTechnology_F1"))) {
+            
+            console.log(`Special handling for ID Music 2 track`);
+            const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+            cleanTrack.src = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
+            console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+            return cleanTrack;
+        }
+        
+        // Special case for ID Music 7 track
+        if (cleanTrack.title === "ID Music 7 - TOGG ID MEDIA Funk" || 
+            (cleanTrack.src && cleanTrack.src.includes("ID_Music_7_TOGG_ID_MEDIA__Funk"))) {
+            
+            console.log(`Special handling for ID Music 7 track`);
+            const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+            cleanTrack.src = `${baseDir}ID Music 7 - (TOGG_ID MEDIA _Funk).mp3`;
+            console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+            return cleanTrack;
+        }
+        
+        // Check if the src has the problematic pattern
+        if (cleanTrack.src && cleanTrack.src.includes('_Unknown_Artist_')) {
+            console.log(`Cleaning up problematic track src: ${cleanTrack.src}`);
+            
+            // Extract the base name and directory
+            const srcParts = cleanTrack.src.split('/');
+            const fileName = srcParts[srcParts.length - 1];
+            
+            // Get the base directory (everything before the filename)
+            const baseDir = srcParts.slice(0, -1).join('/');
+            
+            // Get the title part before _Unknown_Artist_
+            const titlePart = fileName.split('_Unknown_Artist_')[0];
+            
+            // Create clean src path
+            cleanTrack.src = `${baseDir}/${titlePart}.mp3`;
+            console.log(`Updated track src to: ${cleanTrack.src}`);
+        }
+        
+        return cleanTrack;
+    });
 }
 
 // Add function to save tracks

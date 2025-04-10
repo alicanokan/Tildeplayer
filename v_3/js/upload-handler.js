@@ -539,6 +539,11 @@ class UploadHandler {
             renderTrackList();
         }
 
+        // Add the file to the known files list if available
+        if (window.addKnownFile && typeof window.addKnownFile === 'function') {
+            window.addKnownFile(file.name);
+        }
+
         showNotification(`Successfully processed ${file.name}`, 'success');
         
         // Clear current file
