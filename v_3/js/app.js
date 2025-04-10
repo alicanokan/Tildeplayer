@@ -252,21 +252,53 @@ const sampleTracks = [
 // A very short audio file encoded as base64 data URI (for embedded audio)
 const embeddedAudioData = "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
 
+// Add new functions to manage the loading UI
+function showTrackLoadingUI(show = true) {
+    const loadingContainer = document.getElementById('track-loading-container');
+    if (loadingContainer) {
+        loadingContainer.style.display = show ? 'block' : 'none';
+    }
+}
+
+function updateTrackLoadingProgress(percent, status, details) {
+    const progressBar = document.getElementById('track-loading-progress');
+    const statusEl = document.getElementById('loading-status');
+    const detailsEl = document.getElementById('track-loading-details');
+    
+    if (progressBar) progressBar.style.width = `${percent}%`;
+    if (statusEl) statusEl.textContent = status || 'Loading...';
+    if (detailsEl) detailsEl.textContent = details || '';
+    
+    // Add pulse effect when loading
+    if (percent < 100 && statusEl) {
+        statusEl.classList.add('loading-pulse');
+    } else if (statusEl) {
+        statusEl.classList.remove('loading-pulse');
+    }
+}
+
 // Find the loadUploadedTracks function and update it
 async function loadUploadedTracks() {
     console.log('Loading tracks from storage and directory...');
     let tracksLoaded = false;
     let storageTracksFound = false;
     
+    // Show loading UI
+    showTrackLoadingUI(true);
+    updateTrackLoadingProgress(10, 'Starting track discovery', 'Checking storage for existing tracks...');
+    
     try {
         // First, scan the assets/tracks directory for all MP3 files
         // This ensures all physically present files are always included
+        updateTrackLoadingProgress(20, 'Scanning audio files', 'Looking for tracks in assets/tracks directory...');
         await scanAssetsDirectoryForTracks();
         
         // Then try loading from storage service
+        updateTrackLoadingProgress(40, 'Checking storage service', 'Looking for saved tracks in storage...');
         const storageTracks = await storageService.loadData('tracks');
         if (storageTracks && Array.isArray(storageTracks) && storageTracks.length > 0) {
             console.log('Loaded tracks from storage service:', storageTracks.length);
+            updateTrackLoadingProgress(50, 'Found tracks in storage', `Loading ${storageTracks.length} tracks from storage...`);
             
             // Merge with existing tracks, avoiding duplicates
             storageTracksFound = true;
@@ -276,21 +308,25 @@ async function loadUploadedTracks() {
         // If no tracks from storage service, try localStorage directly
         if (!storageTracksFound) {
             console.log('No tracks found in storage service, checking localStorage directly...');
+            updateTrackLoadingProgress(60, 'Checking local storage', 'No tracks in storage service, trying local storage...');
             
             try {
                 const localStorageTracks = JSON.parse(localStorage.getItem('tracks'));
                 if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
                     console.log('Found tracks in localStorage:', localStorageTracks.length);
+                    updateTrackLoadingProgress(65, 'Found tracks in local storage', `Loading ${localStorageTracks.length} tracks from local storage...`);
                     storageTracksFound = true;
                     mergeTracksWithoutDuplicates(localStorageTracks);
                 }
             } catch (localStorageError) {
                 console.error('Error parsing tracks from localStorage:', localStorageError);
+                updateTrackLoadingProgress(65, 'Error checking local storage', 'Unable to load tracks from local storage');
             }
             
             // If still no tracks, check if we're on GitHub Pages and need to sync from Gist
             if (!storageTracksFound && window.storageService && window.storageService.isRunningOnGitHub()) {
                 console.log('Attempting to sync from Gist...');
+                updateTrackLoadingProgress(70, 'Syncing from GitHub Gist', 'Attempting to load tracks from GitHub Gist...');
                 try {
                     await window.storageService.syncFromGistToLocal();
                     
@@ -298,50 +334,61 @@ async function loadUploadedTracks() {
                     const syncedTracks = await storageService.loadData('tracks');
                     if (syncedTracks && Array.isArray(syncedTracks) && syncedTracks.length > 0) {
                         console.log('Found tracks after Gist sync:', syncedTracks.length);
+                        updateTrackLoadingProgress(75, 'Tracks loaded from Gist', `Found ${syncedTracks.length} tracks in GitHub Gist`);
                         storageTracksFound = true;
                         mergeTracksWithoutDuplicates(syncedTracks);
                     }
                 } catch (syncError) {
                     console.error('Error syncing from Gist:', syncError);
+                    updateTrackLoadingProgress(75, 'Gist sync error', 'Could not sync tracks from GitHub Gist');
                 }
             }
         }
         
         // Process the final merged track list
+        updateTrackLoadingProgress(80, 'Processing tracks', 'Finalizing track discovery...');
         processAndUseDiscoveredTracks();
         
     } catch (error) {
         console.error('Error loading tracks:', error);
+        updateTrackLoadingProgress(85, 'Error loading tracks', `Error: ${error.message}`);
         
         // Try localStorage as fallback
         try {
             const localStorageTracks = JSON.parse(localStorage.getItem('tracks'));
             if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
                 console.log('Using localStorage fallback for tracks:', localStorageTracks.length);
+                updateTrackLoadingProgress(90, 'Using fallback tracks', `Loading ${localStorageTracks.length} tracks from fallback source`);
                 mergeTracksWithoutDuplicates(localStorageTracks);
                 processAndUseDiscoveredTracks();
             } else {
                 // If still no tracks, use the sample tracks as a last resort
+                updateTrackLoadingProgress(95, 'Using sample tracks', 'No stored tracks found, loading sample tracks');
                 useSampleTracksAsFallback();
             }
         } catch (fallbackError) {
             console.error('Fallback loading failed, using discovered directory tracks:', fallbackError);
             if (allTracks.length > 0) {
+                updateTrackLoadingProgress(95, 'Using discovered tracks', `Using ${allTracks.length} tracks found in directory`);
                 processAndUseDiscoveredTracks();
             } else {
+                updateTrackLoadingProgress(95, 'Using sample tracks', 'No tracks found, loading sample tracks');
                 useSampleTracksAsFallback();
             }
         }
+    } finally {
+        // Hide loading UI when complete
+        updateTrackLoadingProgress(100, 'Track loading complete', `${allTracks.length} tracks loaded successfully`);
+        setTimeout(() => {
+            showTrackLoadingUI(false);
+        }, 2000); // Hide after 2 seconds
     }
 }
 
-// Helper function to scan assets directory for track files
-// Function updated to use async implementation below
+// Update the scanAssetsDirectoryForTracks function to include progress updates
 async function scanAssetsDirectoryForTracks() {
     console.log('Scanning assets/tracks directory for MP3 files...');
-    
-    // In a browser context, we can't directly read the file system
-    // Instead, we'll try to discover tracks by checking known file patterns
+    updateTrackLoadingProgress(25, 'Scanning audio files', 'Checking for track files...');
     
     // Start with an empty array (not sample tracks)
     allTracks = []; 
@@ -368,10 +415,17 @@ async function scanAssetsDirectoryForTracks() {
     
     try {
         // Load known files from localStorage or JSON file
+        updateTrackLoadingProgress(30, 'Loading known files', 'Checking for known audio files...');
         const knownFiles = await loadKnownFiles();
         
         // Create proper track entries for all known files
-        knownFiles.forEach(file => {
+        knownFiles.forEach((file, index) => {
+            // Show progress in batches to avoid too many updates
+            if (index % 5 === 0) {
+                const percent = 30 + Math.min(15, Math.floor((index / knownFiles.length) * 15));
+                updateTrackLoadingProgress(percent, 'Processing known files', `Processing file ${index+1}/${knownFiles.length}: ${file.filename}`);
+            }
+            
             // Find any matching potential track
             const matchingTrack = potentialTracks.find(track => track.index === file.index);
             if (matchingTrack) {
@@ -395,13 +449,19 @@ async function scanAssetsDirectoryForTracks() {
         });
         
         console.log(`Found ${allTracks.length} tracks in the assets directory`);
+        updateTrackLoadingProgress(45, 'Tracks discovered', `Found ${allTracks.length} tracks in assets directory`);
         
         // Test each track by trying to load it
-        for (const track of allTracks) {
-            await testTrackExists(track);
+        for (let i = 0; i < allTracks.length; i++) {
+            if (i % 3 === 0) { // Update progress every 3 tracks
+                const percent = 45 + Math.min(10, Math.floor((i / allTracks.length) * 10));
+                updateTrackLoadingProgress(percent, 'Testing audio files', `Testing track ${i+1}/${allTracks.length}: ${allTracks[i].title}`);
+            }
+            await testTrackExists(allTracks[i]);
         }
     } catch (error) {
         console.error('Error loading known files:', error);
+        updateTrackLoadingProgress(55, 'Error in track discovery', `Error: ${error.message}`);
         return [];
     }
 }

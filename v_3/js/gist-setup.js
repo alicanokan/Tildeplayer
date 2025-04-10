@@ -258,10 +258,55 @@
         injectCSS();
         createSetupUI();
         
+        // Check for storage service with retry mechanism
+        checkStorageServiceAvailability();
+    });
+    
+    // Function to check for storage service availability
+    function checkStorageServiceAvailability() {
+        // If we already have the storageService, use it immediately
+        if (window.storageService) {
+            console.log('Storage service found on first check');
+            initializeWithStorageService();
+            return;
+        }
+        
+        // Otherwise, set up a retry mechanism
+        let retryCount = 0;
+        const maxRetries = 5;
+        const retryInterval = 1000; // 1 second interval
+        
+        const checkInterval = setInterval(() => {
+            retryCount++;
+            
+            if (window.storageService) {
+                console.log(`Storage service found after ${retryCount} retries`);
+                clearInterval(checkInterval);
+                initializeWithStorageService();
+                return;
+            }
+            
+            if (retryCount >= maxRetries) {
+                console.error(`Storage service not found after ${maxRetries} retries`);
+                clearInterval(checkInterval);
+                updateGistStatus(false, 'Storage service not available. Please refresh the page and try again.');
+            } else {
+                console.log(`Waiting for storage service... Retry ${retryCount}/${maxRetries}`);
+                // Show this status only if user has opened the panel
+                if (!document.querySelector('.gist-setup-container.hidden')) {
+                    updateGistStatus(false, `Waiting for storage service... (${retryCount}/${maxRetries})`);
+                }
+            }
+        }, retryInterval);
+    }
+    
+    // Initialize with storage service when available
+    function initializeWithStorageService() {
         // If we have a saved Gist ID, use it to update the storage service
-        if (savedGistId && window.storageService) {
+        if (savedGistId) {
             window.storageService.GIST_ID = savedGistId;
             console.log('Loaded Gist ID from local storage:', savedGistId);
+            updateGistStatus(true, 'Gist ID configured from local storage');
         }
-    });
+    }
 })(); 
