@@ -1,4 +1,92 @@
-// Common utility functions for the music player app
+/**
+ * Common utility functions for the TildePlayer
+ */
+
+// Get the base path - this works whether we're on index.html or upload.html
+const basePath = window.location.pathname.replace(/\/[^\/]*$/, '/');
+
+// Function to check if all essential components are loaded
+function checkEssentialComponents() {
+    console.log('Checking essential components...');
+    
+    // Components to check
+    console.log(`  window.notificationService: ${typeof window.notificationService !== 'undefined' ? 'Available' : 'Not available'}`);
+    console.log(`  window.storageService: ${typeof window.storageService !== 'undefined' ? 'Available' : 'Not available'}`);
+    console.log(`  window.uploadHandler: ${typeof window.uploadHandler !== 'undefined' ? 'Available' : 'Not available'}`);
+    console.log(`  window.tracksData: ${typeof window.tracksData !== 'undefined' ? `Array with ${window.tracksData.length} items` : 'Not available'}`);
+    console.log(`  window.filteredTracks: ${typeof window.filteredTracks !== 'undefined' ? `Array with ${window.filteredTracks.length} items` : 'Not available'}`);
+    console.log(`  renderTrackList: ${typeof window.renderTrackList === 'function' ? 'Available' : 'Not available'}`);
+    
+    // Check for common errors
+    if (typeof window.storageService === 'undefined') {
+        console.error('StorageService not available - this is a critical component!');
+        
+        // Try to recreate it if missing
+        if (typeof StorageService !== 'undefined') {
+            console.log('Attempting to recreate StorageService...');
+            window.storageService = new StorageService();
+        }
+    }
+    
+    if (typeof window.notificationService === 'undefined') {
+        console.warn('NotificationService not available - creating one now');
+        window.notificationService = {
+            show: function(title, message, type = 'info', duration = 5000) {
+                console.log(`NOTIFICATION (${type}): ${title} - ${message}`);
+                alert(`${title}: ${message}`);
+            }
+        };
+    }
+    
+    if (typeof window.uploadHandler === 'undefined') {
+        console.warn('UploadHandler not available');
+    }
+    
+    // Return true if all essential components are available
+    return typeof window.storageService !== 'undefined';
+}
+
+// Initialize components asynchronously to ensure they're loaded
+async function initializeComponents() {
+    // Retry logic for component initialization
+    let retries = 0;
+    const maxRetries = 5;
+    
+    while (retries < maxRetries) {
+        if (checkEssentialComponents()) {
+            console.log('All essential components are available!');
+            break;
+        } else {
+            console.warn(`Some components are missing. Retrying in 500ms... (${retries + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            retries++;
+        }
+    }
+    
+    if (retries >= maxRetries) {
+        console.error('Failed to initialize all components after multiple retries');
+        if (typeof window.notificationService !== 'undefined') {
+            window.notificationService.show(
+                'Initialization Error',
+                'Some components failed to load. You may need to refresh the page.',
+                'error',
+                10000
+            );
+        } else {
+            alert('Initialization Error: Some components failed to load. Please refresh the page.');
+        }
+    }
+}
+
+// Start initializing components when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing components...');
+    initializeComponents();
+});
+
+// Export common functions
+window.checkEssentialComponents = checkEssentialComponents;
+window.initializeComponents = initializeComponents;
 
 // Get the absolute path to the @audio directory
 function getAudioDirectoryPath() {

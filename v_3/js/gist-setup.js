@@ -4,16 +4,45 @@
  */
 
 (function() {
-    // Check if we already have a Gist ID in local storage
-    const savedGistId = localStorage.getItem('gistId');
-    const savedGithubToken = localStorage.getItem('githubToken');
+    // Ensure document is loaded before initializing
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeGistSetup);
+    } else {
+        // Document already loaded, initialize immediately
+        initializeGistSetup();
+    }
     
-    // Add a reference to the upload handler for force refresh integration
-    let uploadHandler = null;
+    // Main initialization function 
+    function initializeGistSetup() {
+        console.log('Initializing GitHub Gist setup UI...');
+        
+        // Check if we already have a Gist ID in local storage
+        const savedGistId = localStorage.getItem('gist-id') || null;
+        const savedGithubToken = localStorage.getItem('github-token') || null;
+        
+        // Add a reference to the upload handler for force refresh integration
+        let uploadHandler = null;
+        
+        // Only inject if our container doesn't already exist
+        if (!document.querySelector('.gist-setup-container')) {
+            injectCSS();
+            createSetupUI();
+            // Check for storage service with retry mechanism after UI is created
+            checkStorageServiceAvailability();
+        } else {
+            console.log('Gist setup UI already exists, skipping initialization');
+        }
+    }
     
     // Function to inject CSS
     function injectCSS() {
+        // Only inject if our style doesn't already exist
+        if (document.querySelector('#gist-setup-styles')) {
+            return;
+        }
+        
         const style = document.createElement('style');
+        style.id = 'gist-setup-styles';
         style.textContent = `
             .gist-setup-container {
                 position: fixed;
@@ -272,11 +301,11 @@
             const githubToken = githubTokenInput.value.trim();
             
             if (gistId) {
-                localStorage.setItem('gistId', gistId);
+                localStorage.setItem('gist-id', gistId);
                 
                 // Save token if provided
                 if (githubToken) {
-                    localStorage.setItem('githubToken', githubToken);
+                    localStorage.setItem('github-token', githubToken);
                     console.log('GitHub token saved (token value hidden for security)');
                     
                     // Update token status
@@ -287,7 +316,7 @@
                     }
                 } else {
                     // Remove any existing token if field is empty
-                    localStorage.removeItem('githubToken');
+                    localStorage.removeItem('github-token');
                     console.log('GitHub token removed');
                     
                     // Update token status
@@ -637,8 +666,7 @@
         
         // Save the validated token if valid
         if (isValid && token) {
-            localStorage.setItem('githubToken', token);
-            localStorage.setItem('github-token', token); // Ensure compatible with storage-service
+            localStorage.setItem('github-token', token);
             
             // Update the storage service if available
             if (window.storageService) {
@@ -659,7 +687,7 @@
         showErrorDetails(''); // Clear any previous error details
         
         // Get the token if available
-        const token = localStorage.getItem('githubToken');
+        const token = localStorage.getItem('github-token');
         const headers = new Headers({
             'Accept': 'application/vnd.github.v3+json',
         });
@@ -821,7 +849,7 @@
             window.storageService.GIST_ID = gistId;
             
             // Update token if available
-            const token = localStorage.getItem('githubToken');
+            const token = localStorage.getItem('github-token');
             if (token) {
                 window.storageService.GITHUB_TOKEN = token;
             } else {
@@ -927,15 +955,6 @@
         }
     }
     
-    // Initialize on DOM load
-    document.addEventListener('DOMContentLoaded', () => {
-        injectCSS();
-        createSetupUI();
-        
-        // Check for storage service with retry mechanism
-        checkStorageServiceAvailability();
-    });
-    
     // Listen for the storage-service-ready event
     window.addEventListener('storage-service-ready', function(event) {
         console.log('Received storage-service-ready event');
@@ -1012,19 +1031,19 @@
             console.log('Creating fallback storage service');
             // Simple fallback storage service with essential methods
             window.storageService = {
-                GIST_ID: localStorage.getItem('gistId') || null,
-                GITHUB_TOKEN: localStorage.getItem('githubToken') || null,
-                hasValidGistSettings: localStorage.getItem('gistId') && localStorage.getItem('githubToken'),
+                GIST_ID: localStorage.getItem('gist-id') || null,
+                GITHUB_TOKEN: localStorage.getItem('github-token') || null,
+                hasValidGistSettings: localStorage.getItem('gist-id') && localStorage.getItem('github-token'),
                 
                 setGistId: function(gistId) {
                     this.GIST_ID = gistId;
-                    localStorage.setItem('gistId', gistId);
+                    localStorage.setItem('gist-id', gistId);
                     console.log('Gist ID set in fallback storage service:', gistId);
                 },
                 
                 setGitHubToken: function(token) {
                     this.GITHUB_TOKEN = token;
-                    localStorage.setItem('githubToken', token);
+                    localStorage.setItem('github-token', token);
                     console.log('GitHub token set in fallback storage service');
                 },
                 

@@ -1509,7 +1509,7 @@ const uploadHandler = new UploadHandler();
 // Make upload handler globally available
 window.uploadHandler = uploadHandler;
 
-// Dispatch event to notify that upload handler is ready
+// Dispatch an event to notify other components that the upload handler is ready
 document.dispatchEvent(new CustomEvent('upload-handler-ready', {
     detail: {
         handler: uploadHandler
@@ -1518,6 +1518,8 @@ document.dispatchEvent(new CustomEvent('upload-handler-ready', {
 
 // Add drag and drop support
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('Upload handler registered globally as window.uploadHandler');
+    
     // Check if we're on the upload page - only show upload interface there
     const isUploadPage = window.location.pathname.includes('upload.html');
     const isIndexPage = window.location.pathname.endsWith('index.html') || 

@@ -110,9 +110,76 @@ const embeddedAudioData = "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY2
 
 // Add new functions to manage the loading UI
 function showTrackLoadingUI(show = true) {
-    const loadingContainer = document.getElementById('track-loading-container');
-    if (loadingContainer) {
-        loadingContainer.style.display = show ? 'block' : 'none';
+    // Check if loading container exists, create it if not
+    let loadingContainer = document.getElementById('track-loading-container');
+    
+    if (!loadingContainer && show) {
+        // Create loading UI if it doesn't exist
+        loadingContainer = document.createElement('div');
+        loadingContainer.id = 'track-loading-container';
+        loadingContainer.className = 'loading-overlay';
+        loadingContainer.innerHTML = `
+            <div class="loading-content">
+                <h3 id="loading-status">Loading tracks...</h3>
+                <div class="progress-container">
+                    <div id="track-loading-progress" class="progress-bar"></div>
+                </div>
+                <p id="track-loading-details">Please wait...</p>
+            </div>
+        `;
+        document.body.appendChild(loadingContainer);
+        
+        // Add styles if they don't exist
+        if (!document.getElementById('loading-styles')) {
+            const style = document.createElement('style');
+            style.id = 'loading-styles';
+            style.textContent = `
+                .loading-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.7);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 9999;
+                }
+                .loading-content {
+                    background: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    text-align: center;
+                    max-width: 80%;
+                }
+                .progress-container {
+                    width: 100%;
+                    background: #eee;
+                    margin: 15px 0;
+                    height: 20px;
+                    border-radius: 10px;
+                    overflow: hidden;
+                }
+                .progress-bar {
+                    height: 100%;
+                    background: #4CAF50;
+                    width: 0%;
+                    transition: width 0.3s ease;
+                }
+                .loading-pulse {
+                    animation: pulse 1.5s infinite;
+                }
+                @keyframes pulse {
+                    0% { opacity: 1; }
+                    50% { opacity: 0.5; }
+                    100% { opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+    } else if (loadingContainer) {
+        loadingContainer.style.display = show ? 'flex' : 'none';
     }
 }
 
@@ -136,6 +203,10 @@ function updateTrackLoadingProgress(percent, status, details) {
 // Find the loadUploadedTracks function and update it
 async function loadUploadedTracks() {
     console.log('Loading uploaded tracks...');
+    
+    // Show loading UI
+    showTrackLoadingUI(true);
+    updateTrackLoadingProgress(10, 'Initializing...', 'Setting up track loading process');
     
     // Ensure tracksData is defined globally
     if (typeof window.tracksData === 'undefined') {
@@ -265,6 +336,15 @@ async function loadUploadedTracks() {
     }
     
     console.log(`Track loading complete. ${window.tracksData.length} tracks loaded.`);
+    
+    // Final update before hiding
+    updateTrackLoadingProgress(100, 'Complete!', `${window.tracksData.length} tracks loaded successfully`);
+    
+    // Give user time to see the completed progress
+    setTimeout(() => {
+        showTrackLoadingUI(false);
+    }, 1000);
+    
     return window.tracksData;
 }
 
@@ -2404,123 +2484,166 @@ function playPreviousTrack() {
  * Set up event listeners for UI elements
  */
 function setupEventListeners() {
-    console.log('Setting up event listeners');
+    // Audio control buttons
+    document.getElementById('play-pause-btn').addEventListener('click', togglePlayPause);
+    document.getElementById('next-btn').addEventListener('click', playNext);
+    document.getElementById('prev-btn').addEventListener('click', playPrevious);
+    document.getElementById('refresh-btn')?.addEventListener('click', () => {
+        if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
+            window.uploadHandler.forceRefresh();
+        }
+    });
     
-    // Play/Pause button
-    if (playBtn) {
-        playBtn.addEventListener('click', togglePlayPause);
+    // Progress slider
+    const progressSlider = document.getElementById('progress-slider');
+    if (progressSlider) {
+        progressSlider.addEventListener('input', seekTrack);
     }
-    
-    // Next/Previous buttons
-    if (prevBtn) {
-        prevBtn.addEventListener('click', playPreviousTrack);
-    }
-    
-    if (nextBtn) {
-        nextBtn.addEventListener('click', playNextTrack);
-    }
-    
-    // Add listener for the force refresh button
-    const forceRefreshBtn = document.getElementById('force-refresh-button');
-    if (forceRefreshBtn) {
-        forceRefreshBtn.addEventListener('click', function() {
-            console.log('Force refresh button clicked');
-            if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
-                window.uploadHandler.forceRefresh();
-            } else {
-                console.warn('Upload handler or forceRefresh method not available');
-                showNotification('Refresh function not available', 'error');
-            }
-        });
-    }
-    
-    // Add listener for the Gist settings button
-    const gistSettingsBtn = document.getElementById('gist-settings-btn');
-    if (gistSettingsBtn) {
-        gistSettingsBtn.addEventListener('click', function() {
-            console.log('Gist settings button clicked');
-            // Find and show the Gist setup container
-            const gistSetupContainer = document.querySelector('.gist-setup-container');
-            if (gistSetupContainer) {
-                gistSetupContainer.classList.remove('hidden');
-            } else {
-                console.warn('Gist setup container not found');
-                showNotification('Gist setup UI not available', 'error');
-            }
-        });
-    }
-    
-    // Add event listeners to track items
-    tracksContainer.addEventListener('click', handleTrackClick);
     
     // Volume slider
+    const volumeSlider = document.getElementById('volume-slider');
     if (volumeSlider) {
-        volumeSlider.addEventListener('input', updateVolume);
-    }
-    
-    // Progress bar clicks
-    const progressContainer = document.querySelector('.progress-container');
-    if (progressContainer) {
-        progressContainer.addEventListener('click', function(e) {
-            const width = this.clientWidth;
-            const clickX = e.offsetX;
-            const duration = audio.duration;
-            
-            if (duration) {
-                audio.currentTime = (clickX / width) * duration;
-                updateProgress();
-            }
+        volumeSlider.addEventListener('input', (e) => {
+            setVolume(e.target.value / 100);
         });
     }
     
     // Mood filter buttons
-    if (moodButtons) {
-        moodButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                toggleFilterButton(button, 'mood');
-                applyFilters();
-            });
+    document.querySelectorAll('.mood-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            toggleFilterButton(button, 'mood');
+            applyFilters();
         });
-    }
+    });
     
     // Genre filter buttons
-    if (genreButtons) {
-        genreButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                toggleFilterButton(button, 'genre');
-                applyFilters();
-            });
+    document.querySelectorAll('.genre-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            toggleFilterButton(button, 'genre');
+            applyFilters();
         });
-    }
+    });
     
     // Duration filter buttons
-    if (durationButtons) {
-        durationButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                toggleFilterButton(button, 'duration');
-                applyFilters();
-            });
+    document.querySelectorAll('.duration-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            toggleFilterButton(button, 'duration');
+            applyFilters();
+        });
+    });
+    
+    // Clear All button
+    document.getElementById('clear-all-btn')?.addEventListener('click', () => {
+        document.querySelectorAll('.mood-btn, .genre-btn, .duration-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        filteredTracks = [...tracksData];
+        renderTrackList();
+    });
+    
+    // Track click handling
+    const tracksContainer = document.getElementById('tracks-container');
+    if (tracksContainer) {
+        // Use event delegation instead of attaching to individual tracks
+        tracksContainer.addEventListener('click', (event) => {
+            // Find the closest track-item
+            const trackItem = event.target.closest('.track-item');
+            if (!trackItem) return;
+            
+            // Check if we clicked a specific button
+            if (event.target.closest('.play-track-btn')) {
+                const trackId = trackItem.dataset.trackId;
+                const track = tracksData.find(t => t.id.toString() === trackId);
+                if (track) {
+                    loadTrack(track);
+                    playTrack();
+                }
+            } else if (event.target.closest('.add-to-playlist-btn')) {
+                const trackId = trackItem.dataset.trackId;
+                const track = tracksData.find(t => t.id.toString() === trackId);
+                if (track) {
+                    addToPlaylist(track);
+                }
+            } else if (event.target.closest('.edit-track-btn')) {
+                // Edit track functionality is handled elsewhere
+            } else {
+                // Clicked on the track itself and not a specific button
+                const trackId = trackItem.dataset.trackId;
+                const track = tracksData.find(t => t.id.toString() === trackId);
+                if (track) {
+                    loadTrack(track);
+                    playTrack();
+                }
+            }
         });
     }
     
-    // Save current position when page unloads
-    window.addEventListener('beforeunload', () => {
-        if (currentTrack && audio) {
-            localStorage.setItem('currentTrackPosition', audio.currentTime.toString());
+    // Playlist interactions
+    document.getElementById('playlist-container')?.addEventListener('click', handlePlaylistClick);
+    
+    // Clear playlist button
+    document.getElementById('clear-playlist-btn')?.addEventListener('click', clearPlaylist);
+    
+    // Save playlist button
+    document.getElementById('save-playlist-btn')?.addEventListener('click', savePlaylist);
+    
+    // Download playlist button
+    document.getElementById('download-playlist-btn')?.addEventListener('click', downloadPlaylist);
+    
+    // Download collection button
+    document.getElementById('download-collection-btn')?.addEventListener('click', () => {
+        // Implementation depends on your download functionality
+        alert('Download collection functionality is coming soon!');
+    });
+    
+    // Keyboard event listeners
+    document.addEventListener('keydown', (e) => {
+        // Space bar for play/pause
+        if (e.code === 'Space' && !e.target.matches('input, textarea')) {
+            e.preventDefault();
+            togglePlayPause();
+        }
+        
+        // Arrow keys for next/previous
+        if (e.code === 'ArrowRight' && !e.target.matches('input, textarea')) {
+            playNext();
+        }
+        
+        if (e.code === 'ArrowLeft' && !e.target.matches('input, textarea')) {
+            playPrevious();
         }
     });
     
-    // Playlist related events
-    if (playlistContainer) {
-        playlistContainer.addEventListener('click', handlePlaylistClick);
+    // Add event listener for upload link
+    if (document.getElementById('upload-link')) {
+        document.getElementById('upload-link').addEventListener('click', (e) => {
+            // You can modify this to add password protection or other logic
+            console.log('Upload link clicked');
+        });
     }
     
-    if (clearPlaylistBtn) {
-        clearPlaylistBtn.addEventListener('click', clearPlaylist);
-    }
-    
-    if (downloadPlaylistBtn) {
-        downloadPlaylistBtn.addEventListener('click', downloadPlaylist);
+    // Add a Gist Settings button if it doesn't exist
+    if (!document.getElementById('gist-settings-btn') && document.querySelector('.player-controls')) {
+        const gistSettingsBtn = document.createElement('button');
+        gistSettingsBtn.id = 'gist-settings-btn';
+        gistSettingsBtn.className = 'control-btn';
+        gistSettingsBtn.title = 'GitHub Gist Settings';
+        gistSettingsBtn.innerHTML = '<i class="fas fa-cog"></i>';
+        gistSettingsBtn.addEventListener('click', () => {
+            console.log('Gist settings button clicked');
+            const setupContainer = document.querySelector('.gist-setup-container');
+            if (setupContainer) {
+                setupContainer.classList.toggle('hidden');
+            } else {
+                console.warn('Gist setup container not found');
+                alert('GitHub Gist settings panel not available. Try refreshing the page.');
+            }
+        });
+        
+        const controlsContainer = document.querySelector('.player-controls');
+        if (controlsContainer) {
+            controlsContainer.appendChild(gistSettingsBtn);
+        }
     }
 }
 
@@ -2625,6 +2748,31 @@ function renderPlaylist() {
     
     // Set up drag and drop functionality
     setupDragAndDrop();
+}
+
+/**
+ * Handle click on track item
+ * @param {Event} event - The click event
+ */
+function handleTrackClick(event) {
+    // Find the track item that was clicked
+    const trackItem = event.target.closest('.track-item');
+    if (!trackItem) return;
+    
+    // Get the track ID from the data attribute
+    const trackId = trackItem.dataset.trackId;
+    if (!trackId) return;
+    
+    // Find the track in the tracks data
+    const track = tracksData.find(t => t.id.toString() === trackId);
+    if (!track) return;
+    
+    // Load and play the track
+    loadTrack(track);
+    playTrack();
+    
+    // Update the UI to show which track is playing
+    updateCurrentTrackIndicator();
 }
 
 // Close the module/script

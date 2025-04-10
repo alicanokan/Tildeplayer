@@ -63,7 +63,7 @@ class StorageService {
         try {
             this._initialized = false;
 
-            // Get saved values
+            // Get saved values from localStorage with proper keys
             this.GIST_ID = localStorage.getItem('gist-id') || null;
             this.GITHUB_TOKEN = localStorage.getItem('github-token') || null;
             this.STORAGE_MODE = this.GIST_ID ? 'gist' : 'local';
@@ -687,13 +687,25 @@ class StorageService {
     
     // New method to sync data from Gist to localStorage
     async syncFromGistToLocal() {
-        if (!this.GIST_ID) {
-            console.error('Cannot sync from Gist: No Gist ID configured');
-            this._showSyncStatus('Sync failed: No Gist ID configured', 'error');
-            return false;
-        }
-        
         try {
+            // Check if we have a Gist ID configured
+            if (!this.GIST_ID) {
+                console.warn('Cannot sync from Gist: No Gist ID configured');
+                this._showSyncStatus('Sync failed: No Gist ID configured', 'warning');
+                
+                // Show a more helpful message with a button to configure Gist
+                if (window.notificationService) {
+                    window.notificationService.show(
+                        'Gist Configuration Required', 
+                        'Click on the "Gist Settings" button to configure GitHub Gist storage.',
+                        'info', 
+                        8000
+                    );
+                }
+                
+                return false;
+            }
+            
             // Show loading indicator
             this._showSyncStatus('Syncing from Gist...', 'loading');
             
@@ -1964,10 +1976,13 @@ class StorageService {
     }
 }
 
-// Create and make the singleton instance globally available
-const storageService = new StorageService();
+// Create a global instance to ensure it's always available
+if (!window.storageService) {
+    window.storageService = new StorageService();
+    console.log('StorageService: Global instance created');
+}
 
-// Make it available globally instead of using exports
-if (typeof window !== 'undefined') {
-    window.storageService = storageService;
+// Export the StorageService class
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = StorageService;
 } 
