@@ -169,6 +169,12 @@ function setupEventListeners() {
     // Approved tracks actions
     approvedTracksList.addEventListener('click', handleApprovedTrackActions);
     applyToPlayerBtn.addEventListener('click', applyToPlayer);
+    
+    // New: Reload from player button
+    const reloadFromPlayerBtn = document.getElementById('reload-from-player-btn');
+    if (reloadFromPlayerBtn) {
+        reloadFromPlayerBtn.addEventListener('click', reloadTracksFromPlayer);
+    }
 }
 
 // Handler for file selection via the file input
@@ -920,8 +926,17 @@ async function applyToPlayer() {
         await storageService.saveData('tracks', formattedTracks);
         console.log("Tracks successfully saved to storage:", formattedTracks);
         
+        // IMPORTANT FIX: Also save the formatted tracks back to approvedTracks
+        // This ensures consistency between player and upload page
+        await storageService.saveData('approvedTracks', formattedTracks);
+        console.log("Also saved formatted tracks as approvedTracks");
+        
+        // Update the local approvedTracks array with the formatted tracks
+        approvedTracks = formattedTracks;
+        
         // Also save to localStorage directly as a fallback
         localStorage.setItem('tracks', JSON.stringify(formattedTracks));
+        localStorage.setItem('approvedTracks', JSON.stringify(formattedTracks));
         
         alert('Tracks successfully applied to the player! You can now view them in the Player page.');
     } catch (error) {
@@ -1927,7 +1942,17 @@ async function loadData() {
         
         // Load both pending and approved tracks
         const loadedPendingTracks = await storageService.loadData('pendingTracks');
-        const loadedApprovedTracks = await storageService.loadData('approvedTracks');
+        let loadedApprovedTracks = await storageService.loadData('approvedTracks');
+        
+        // IMPORTANT FIX: Also check 'tracks' storage which is where the player tracks are stored
+        // If there are no approved tracks but there are player tracks, use those as approved tracks
+        if ((!loadedApprovedTracks || loadedApprovedTracks.length === 0)) {
+            const playerTracks = await storageService.loadData('tracks');
+            if (playerTracks && playerTracks.length > 0) {
+                console.log("No approved tracks found, but found tracks in player storage. Using those instead:", playerTracks.length);
+                loadedApprovedTracks = playerTracks;
+            }
+        }
         
         console.log("Data from storage service:", {
             pendingTracks: loadedPendingTracks ? loadedPendingTracks.length : 0,
@@ -1954,6 +1979,19 @@ async function loadData() {
             } catch (e) {
                 console.error("Error parsing approvedTracks from localStorage", e);
                 approvedTracks = [];
+            }
+            
+            // IMPORTANT FIX: Check also in localStorage for 'tracks'
+            if (approvedTracks.length === 0 && localStorage.getItem('tracks')) {
+                try {
+                    const playerTracks = JSON.parse(localStorage.getItem('tracks')) || [];
+                    if (playerTracks.length > 0) {
+                        console.log("Found tracks in localStorage, using as approved tracks:", playerTracks.length);
+                        approvedTracks = playerTracks;
+                    }
+                } catch (e) {
+                    console.error("Error parsing tracks from localStorage", e);
+                }
             }
         } else if (loadedApprovedTracks) {
             approvedTracks = loadedApprovedTracks;
@@ -1988,6 +2026,40 @@ function seekPreviewAudio(e) {
     const seekTime = (clickPosition / progressBarWidth) * previewAudio.duration;
     
     previewAudio.currentTime = seekTime;
+}
+
+// Function to reload tracks from player storage
+async function reloadTracksFromPlayer() {
+    try {
+        console.log("Reloading tracks from player storage...");
+        
+        // Load tracks from player storage
+        const playerTracks = await storageService.loadData('tracks');
+        
+        if (!playerTracks || playerTracks.length === 0) {
+            console.log("No tracks found in player storage");
+            alert("No tracks found in the player. Add and approve tracks first.");
+            return;
+        }
+        
+        // Update approved tracks with player tracks
+        approvedTracks = playerTracks;
+        
+        // Save to approved tracks storage
+        await storageService.saveData('approvedTracks', approvedTracks);
+        
+        // Also save to localStorage as fallback
+        localStorage.setItem('approvedTracks', JSON.stringify(approvedTracks));
+        
+        // Re-render the approved tracks list
+        renderApprovedTracks();
+        
+        console.log(`Successfully loaded ${approvedTracks.length} tracks from player`);
+        alert(`Successfully loaded ${approvedTracks.length} tracks from the player.`);
+    } catch (error) {
+        console.error("Error reloading tracks from player:", error);
+        alert("Error loading tracks from player. Please try again.");
+    }
 }
 
 // Initialize the page when DOM is loaded

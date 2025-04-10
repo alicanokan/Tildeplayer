@@ -849,4 +849,31 @@ nav a.active {
 
 .error-message {
     color: #721c24;
+}
+
+/* Add CSS for the action buttons container */
+.action-buttons-container {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+/* Style for secondary button */
+.secondary-btn {
+    background-color: #4a6fa5;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.3s ease;
+}
+
+.secondary-btn:hover {
+    background-color: #385d8a;
+}
+
+.secondary-btn:active {
+    background-color: #2c4a6e;
 } 
