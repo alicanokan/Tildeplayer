@@ -3,7 +3,40 @@ class UploadHandler {
     constructor() {
         this.uploadQueue = [];
         this.isUploading = false;
-        this.localTracks = JSON.parse(localStorage.getItem('localTracks') || '[]');
+        this.tracksData = null;
+        this.loadTracksData();
+    }
+
+    async loadTracksData() {
+        try {
+            const response = await fetch('assets/tracks/tracks.json');
+            if (!response.ok) {
+                throw new Error('Failed to load tracks data');
+            }
+            this.tracksData = await response.json();
+            this.initializeTracksFromLog();
+        } catch (error) {
+            console.error('Error loading tracks data:', error);
+            this.tracksData = { tracks: [], lastUpdated: new Date().toISOString() };
+        }
+    }
+
+    initializeTracksFromLog() {
+        if (this.tracksData && this.tracksData.tracks) {
+            // Clear existing tracks
+            tracksData.length = 0;
+            
+            // Add tracks from the log
+            this.tracksData.tracks.forEach(track => {
+                if (!tracksData.some(t => t.id === track.id)) {
+                    tracksData.push(track);
+                }
+            });
+            
+            // Update UI
+            filteredTracks = [...tracksData];
+            renderTrackList();
+        }
     }
 
     async handleFileUpload(files) {
@@ -19,24 +52,45 @@ class UploadHandler {
             }
 
             try {
-                const trackUrl = URL.createObjectURL(file);
+                // Create a new track entry
                 const newTrack = {
-                    id: Date.now() + Math.random(), // Ensure unique ID
+                    id: Date.now().toString(),
                     title: file.name.replace('.mp3', ''),
-                    artist: 'Local Upload',
-                    src: trackUrl,
-                    originalFile: file,
+                    artist: 'TildeSoundArt',
+                    src: `assets/tracks/${file.name}`,
                     albumArt: 'assets/images/Tilde_Logo.png',
                     mood: ['unknown'],
                     genre: ['unknown'],
                     duration: 'unknown',
-                    isLocalTrack: true
+                    dateAdded: new Date().toISOString()
                 };
 
-                // Add to local tracks
-                this.localTracks.push(newTrack);
-                localStorage.setItem('localTracks', JSON.stringify(this.localTracks));
+                // Add to tracks data
+                this.tracksData.tracks.push(newTrack);
+                this.tracksData.lastUpdated = new Date().toISOString();
 
+                // Update the tracks.json content
+                const trackLogContent = JSON.stringify(this.tracksData, null, 2);
+                
+                // Create a download link for the updated tracks.json
+                const blob = new Blob([trackLogContent], { type: 'application/json' });
+                const downloadUrl = URL.createObjectURL(blob);
+                const downloadLink = document.createElement('a');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = 'tracks.json';
+                
+                // Show notification with instructions
+                showNotification(`
+                    Track "${newTrack.title}" has been processed. To complete the upload:
+                    1. The tracks.json file will download automatically
+                    2. Replace the existing tracks.json in your GitHub repository
+                    3. Commit and push the changes to GitHub
+                    4. Place the audio file in the assets/tracks directory
+                `, 'info', 10000);
+                
+                // Trigger download
+                downloadLink.click();
+                
                 // Add to tracksData and update UI
                 if (!tracksData.some(track => track.id === newTrack.id)) {
                     tracksData.push(newTrack);
@@ -44,7 +98,7 @@ class UploadHandler {
                     renderTrackList();
                 }
 
-                showNotification(`Successfully added ${file.name}`, 'success');
+                showNotification(`Successfully processed ${file.name}`, 'success');
             } catch (error) {
                 console.error('Error processing file:', error);
                 showNotification(`Failed to process ${file.name}: ${error.message}`, 'error');
@@ -52,15 +106,15 @@ class UploadHandler {
         }
     }
 
-    // Load previously uploaded local tracks
-    loadLocalTracks() {
-        this.localTracks.forEach(track => {
-            if (!tracksData.some(t => t.id === track.id)) {
-                tracksData.push(track);
-            }
-        });
-        filteredTracks = [...tracksData];
-        renderTrackList();
+    // Get formatted track list for export
+    getFormattedTrackList() {
+        return this.tracksData.tracks.map(track => ({
+            id: track.id,
+            title: track.title,
+            artist: track.artist,
+            src: track.src,
+            dateAdded: track.dateAdded
+        }));
     }
 }
 
@@ -109,7 +163,4 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.addEventListener('change', (e) => {
         uploadHandler.handleFileUpload(e.target.files);
     });
-
-    // Load any previously uploaded tracks
-    uploadHandler.loadLocalTracks();
 }); 

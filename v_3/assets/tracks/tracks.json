@@ -1,0 +1,25 @@
+{
+  "tracks": [
+    {
+      "id": "1",
+      "title": "ID Music 1",
+      "artist": "TildeSoundArt",
+      "src": "assets/tracks/ID Music 1 - (TOGG_ID MEDIA _padfuturebass 2).mp3",
+      "albumArt": "assets/images/Tilde_Logo.png",
+      "mood": ["energetic", "upbeat"],
+      "genre": ["electronic"],
+      "duration": "medium"
+    },
+    {
+      "id": "2",
+      "title": "ID Music 2",
+      "artist": "TildeSoundArt",
+      "src": "assets/tracks/ID Music 2 - (17c-Technology_F1).mp3",
+      "albumArt": "assets/images/Tilde_Logo.png",
+      "mood": ["technology", "modern"],
+      "genre": ["electronic"],
+      "duration": "medium"
+    }
+  ],
+  "lastUpdated": "2024-03-19T12:00:00Z"
+} 
