@@ -392,57 +392,63 @@ class StorageService {
     // GitHub Gist methods
     async saveToGist(key, data) {
         try {
-            // First, get the current gist content
-            const response = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
-                headers: this.getGitHubHeaders()
-            });
+            console.log(`Saving ${key} to Gist with ${Array.isArray(data) ? data.length : 'unknown'} items...`);
             
-            if (!response.ok) {
-                // Special case: if 404 and we have a token, try to create the Gist
-                if (response.status === 404 && this.GITHUB_TOKEN) {
-                    console.log("Gist not found, attempting to create one...");
-                    const created = await this.initializeGist();
-                    
-                    // If successfully created, try saving again
-                    if (created) {
-                        return await this.saveToGist(key, data);
+            // Use the waitForSync helper to ensure proper completion
+            return await this.waitForSync(async () => {
+                // First, get the current gist content
+                const response = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
+                    headers: this.getGitHubHeaders()
+                });
+                
+                if (!response.ok) {
+                    // Special case: if 404 and we have a token, try to create the Gist
+                    if (response.status === 404 && this.GITHUB_TOKEN) {
+                        console.log("Gist not found, attempting to create one...");
+                        const created = await this.initializeGist();
+                        
+                        // If successfully created, try saving again
+                        if (created) {
+                            return await this.saveToGist(key, data);
+                        }
                     }
+                    
+                    throw this.handleGitHubApiError(response, 'getting Gist content');
                 }
                 
-                throw this.handleGitHubApiError(response, 'getting Gist content');
-            }
-            
-            const gist = await response.json();
+                const gist = await response.json();
 
-            // Get the current data or initialize new
-            let allData = {};
-            if (gist.files && gist.files['tildeplayer_data.json']) {
-                allData = JSON.parse(gist.files['tildeplayer_data.json'].content);
-            }
-
-            // Update the specific key
-            allData[key] = data;
-            allData.lastUpdated = new Date().toISOString();
-
-            // Prepare the update
-            const files = {
-                'tildeplayer_data.json': {
-                    content: JSON.stringify(allData, null, 2)
+                // Get the current data or initialize new
+                let allData = {};
+                if (gist.files && gist.files['tildeplayer_data.json']) {
+                    allData = JSON.parse(gist.files['tildeplayer_data.json'].content);
                 }
-            };
 
-            // Update the gist
-            const updateResponse = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
-                method: 'PATCH',
-                headers: this.getGitHubHeaders(),
-                body: JSON.stringify({ files })
+                // Update the specific key
+                allData[key] = data;
+                allData.lastUpdated = new Date().toISOString();
+
+                // Prepare the update
+                const files = {
+                    'tildeplayer_data.json': {
+                        content: JSON.stringify(allData, null, 2)
+                    }
+                };
+
+                // Update the gist
+                const updateResponse = await fetch(`https://api.github.com/gists/${this.GIST_ID}`, {
+                    method: 'PATCH',
+                    headers: this.getGitHubHeaders(),
+                    body: JSON.stringify({ files })
+                });
+
+                if (!updateResponse.ok) {
+                    throw this.handleGitHubApiError(updateResponse, 'updating Gist');
+                }
+                
+                console.log(`Successfully saved ${key} to Gist with ${Array.isArray(data) ? data.length : 'unknown'} items`);
+                return true;
             });
-
-            if (!updateResponse.ok) {
-                throw this.handleGitHubApiError(updateResponse, 'updating Gist');
-            }
-
-            return true;
         } catch (error) {
             console.error('Error saving to Gist:', error);
             
@@ -654,31 +660,62 @@ class StorageService {
         try {
             console.log("Performing comprehensive data synchronization...");
             
-            if (!this.isGitHub || !this.GITHUB_TOKEN) {
-                console.log("Not running on GitHub or no token available, skipping Gist sync");
+            if (!this.hasValidGistSettings) {
+                console.log("No valid Gist settings available, skipping Gist sync");
                 return await this.syncTrackCollections();
             }
             
             // First, ensure the Gist exists and is properly initialized
             await this.initializeGist();
             
-            // Then sync from Gist to local
-            const syncResult = await this.syncFromGistToLocal();
+            // First sync from local to Gist to ensure remote has our latest changes
+            const localTracks = this.loadFromLocalStorage('tracks') || [];
+            const localApprovedTracks = this.loadFromLocalStorage('approvedTracks') || [];
+            const localPendingTracks = this.loadFromLocalStorage('pendingTracks') || [];
             
-            // Finally sync track collections
+            console.log(`Local data before sync - Tracks: ${localTracks.length}, Approved: ${localApprovedTracks.length}, Pending: ${localPendingTracks.length}`);
+            
+            // Save all local collections to Gist first
+            if (localTracks.length > 0) {
+                await this.saveToGist('tracks', localTracks);
+            }
+            
+            if (localApprovedTracks.length > 0) {
+                await this.saveToGist('approvedTracks', localApprovedTracks);
+            }
+            
+            if (localPendingTracks.length > 0) {
+                await this.saveToGist('pendingTracks', localPendingTracks);
+            }
+            
+            // Then sync from Gist to local to ensure the latest is in both places
+            await this.syncFromGistToLocal();
+            
+            // Finally sync track collections to ensure consistency
             await this.syncTrackCollections();
+            
+            // Load the synchronized data to verify
+            const tracksAfterSync = this.loadFromLocalStorage('tracks') || [];
+            const approvedTracksAfterSync = this.loadFromLocalStorage('approvedTracks') || [];
+            
+            console.log(`Data after sync - Tracks: ${tracksAfterSync.length}, Approved: ${approvedTracksAfterSync.length}`);
             
             // Show a success notification
             if (window.notificationService) {
                 window.notificationService.show(
                     'Sync Complete', 
-                    'Successfully synchronized all data between GitHub Gist and local storage',
+                    `Successfully synchronized all data. Tracks: ${tracksAfterSync.length}, Approved: ${approvedTracksAfterSync.length}`,
                     'success',
-                    3000
+                    5000
                 );
             }
             
-            return true;
+            return {
+                success: true,
+                tracks: tracksAfterSync,
+                approvedTracks: approvedTracksAfterSync,
+                pendingTracks: this.loadFromLocalStorage('pendingTracks') || []
+            };
         } catch (error) {
             console.error("Error during comprehensive sync:", error);
             
@@ -692,10 +729,29 @@ class StorageService {
                 );
             }
             
-            return false;
+            return {
+                success: false,
+                error: error.message
+            };
         }
     }
     
+    // Helper method to wait for a Gist sync operation to complete
+    async waitForSync(operation) {
+        try {
+            // Execute the operation
+            const result = await operation();
+            
+            // Add a small delay to ensure GitHub API has processed the request
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            return result;
+        } catch (error) {
+            console.error("Error during sync operation:", error);
+            throw error;
+        }
+    }
+
     // Add an accessor to check if we have valid Gist settings
     get hasValidGistSettings() {
         return this.GIST_ID && this.GIST_ID !== 'YOUR_GIST_ID_HERE' && this.GITHUB_TOKEN;

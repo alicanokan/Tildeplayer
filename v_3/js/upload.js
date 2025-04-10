@@ -218,21 +218,76 @@ async function performGlobalSync() {
     }
     
     try {
+        console.log("Starting global synchronization process...");
+        
+        // Get current track counts for comparison
+        const beforeTracks = (approvedTracks || []).length;
+        const beforePending = (pendingTracks || []).length;
+        console.log(`Current tracks before sync - Approved: ${beforeTracks}, Pending: ${beforePending}`);
+        
         // Perform a comprehensive sync
-        await window.storageService.forceSyncAll();
+        const syncResult = await window.storageService.forceSyncAll();
         
-        // After sync, reload the data
-        await loadData();
-        
-        // Update UI with new data
-        renderPendingTracks();
-        renderApprovedTracks();
-        
-        // Show success notification
-        showNotification('Global sync completed successfully! Data has been synchronized with GitHub Gist.', 5000);
+        if (syncResult.success) {
+            console.log("Global sync completed successfully:", syncResult);
+            
+            // Check if we need to reload the data
+            let needsReload = false;
+            
+            // First check if track counts have changed
+            if (syncResult.tracks.length !== beforeTracks || 
+                syncResult.pendingTracks.length !== beforePending) {
+                console.log(`Track count changed - Before: ${beforeTracks}, After: ${syncResult.tracks.length}`);
+                needsReload = true;
+            }
+            
+            if (needsReload) {
+                // Reload data from the syncResult directly
+                approvedTracks = syncResult.approvedTracks || [];
+                pendingTracks = syncResult.pendingTracks || [];
+                
+                console.log(`Updated collections - Approved: ${approvedTracks.length}, Pending: ${pendingTracks.length}`);
+                
+                // Save back to localStorage to ensure consistency
+                localStorage.setItem('tracks', JSON.stringify(syncResult.tracks));
+                localStorage.setItem('approvedTracks', JSON.stringify(syncResult.approvedTracks));
+                localStorage.setItem('pendingTracks', JSON.stringify(syncResult.pendingTracks));
+                
+                // Update UI with new data
+                renderPendingTracks();
+                renderApprovedTracks();
+                
+                // Show success notification
+                showNotification(`Global sync completed: ${syncResult.tracks.length} tracks synchronized, ${syncResult.pendingTracks.length} pending tracks.`, 5000);
+            } else {
+                // No changes detected
+                showNotification('Global sync completed. No changes detected.', 3000);
+            }
+        } else {
+            console.error("Global sync failed:", syncResult.error);
+            
+            // Try to fallback to a regular loadData operation
+            await loadData();
+            
+            // Update UI with new data
+            renderPendingTracks();
+            renderApprovedTracks();
+            
+            // Show warning notification
+            alert(`Global sync encountered a problem: ${syncResult.error}. Attempted to recover data from available sources.`);
+        }
     } catch (error) {
         console.error('Error during global sync:', error);
-        alert(`Global sync failed: ${error.message}`);
+        alert(`Global sync failed: ${error.message}. Please check the console for details.`);
+        
+        // Try to recover by loading from storage anyway
+        try {
+            await loadData();
+            renderPendingTracks();
+            renderApprovedTracks();
+        } catch (loadError) {
+            console.error("Failed to recover after sync error:", loadError);
+        }
     } finally {
         // Reset button state
         if (syncButton) {
@@ -980,13 +1035,23 @@ function saveTrackTags() {
 function approveTrack() {
     if (selectedTrackIndex === -1) return;
     
+    // Show approving status
+    const approveBtn = document.getElementById('approve-track-btn');
+    if (approveBtn) {
+        approveBtn.textContent = 'Approving...';
+        approveBtn.disabled = true;
+    }
+    
     const track = pendingTracks[selectedTrackIndex];
     
     // Use the original filename instead of creating a new one
     // This preserves spaces, parentheses, and other special characters
     const originalFileName = track.fileName || track.originalFileName || track.name;
     
-    // Create a track object for the approved list
+    // Get the selected duration from the form (defaults to energetic if none selected)
+    const selectedDuration = Array.from(durationRadios).find(radio => radio.checked)?.value || "energetic";
+    
+    // Create a track object for the approved list with a unique ID
     const approvedTrack = {
         id: track.id || Date.now(),
         title: track.title,
@@ -995,12 +1060,14 @@ function approveTrack() {
         albumArt: "assets/images/togg-seeklogo.png",
         mood: [...track.mood],
         genre: [...track.genre],
-        duration: track.duration,
+        duration: selectedDuration, // Use the selected duration from the form
         fileName: originalFileName,
         originalFileName: originalFileName,
         fileSize: track.fileSize,
         dateAdded: new Date().toISOString()  // Add timestamp for sorting/tracking
     };
+    
+    console.log(`Approving track "${approvedTrack.title}" with duration "${approvedTrack.duration}"`);
     
     // Add to approved tracks
     approvedTracks.push(approvedTrack);
@@ -1024,19 +1091,46 @@ function approveTrack() {
     // Stop audio if playing
     stopPreviewPlayback();
     
+    // Save directly to localStorage first for immediate availability
+    localStorage.setItem('approvedTracks', JSON.stringify(approvedTracks));
+    localStorage.setItem('tracks', JSON.stringify(approvedTracks));
+    
     // IMPORTANT: Save to both approvedTracks and the main player tracks storage
-    saveDataToAllStorages().then(() => {
-        // After saving, force a sync from GitHub to local to ensure consistency
-        if (window.storageService && window.storageService.isGitHub) {
-            window.storageService.syncFromGistToLocal().then(() => {
-                console.log("Forced synchronization from Gist to local storage after track approval");
-            }).catch(err => {
+    saveDataToAllStorages().then(async () => {
+        // After saving, force a comprehensive sync to ensure consistency everywhere
+        if (window.storageService && window.storageService.hasValidGistSettings) {
+            try {
+                // Force a full sync to ensure consistency
+                const syncResult = await window.storageService.forceSyncAll();
+                console.log("Track approval sync completed:", syncResult);
+                
+                // If sync was not successful, try direct Gist save as a fallback
+                if (!syncResult.success) {
+                    await window.storageService.saveToGist('tracks', approvedTracks);
+                    await window.storageService.saveToGist('approvedTracks', approvedTracks);
+                    console.log("Direct Gist save completed after sync failure");
+                }
+            } catch (err) {
                 console.error("Error during forced Gist sync:", err);
-            });
+            }
+        }
+        
+        // Reset approve button
+        if (approveBtn) {
+            approveBtn.textContent = 'Approve Track';
+            approveBtn.disabled = false;
+        }
+    }).catch(error => {
+        console.error("Error saving approved track:", error);
+        
+        // Reset approve button even on error
+        if (approveBtn) {
+            approveBtn.textContent = 'Approve Track';
+            approveBtn.disabled = false;
         }
     });
     
-    // Update the UI
+    // Update the UI immediately
     renderPendingTracks();
     renderApprovedTracks();
     
@@ -1134,7 +1228,14 @@ async function applyToPlayer() {
     }
     
     try {
-        console.log("Applying tracks to player:", approvedTracks);
+        // Show loading indicator
+        const applyButton = document.querySelector('#apply-to-player-btn');
+        if (applyButton) {
+            applyButton.textContent = 'Syncing...';
+            applyButton.disabled = true;
+        }
+        
+        console.log(`Applying ${approvedTracks.length} tracks to player...`);
         
         // Make sure all tracks have the required fields for the player
         const formattedTracks = approvedTracks.map(track => {
@@ -1158,38 +1259,82 @@ async function applyToPlayer() {
         // Update the local approvedTracks array with the formatted tracks
         approvedTracks = formattedTracks;
         
-        // First, save to localStorage to ensure immediate availability
+        console.log(`Using ${approvedTracks.length} formatted tracks for storage...`);
+        
+        // Save all data to various storage mechanisms to ensure consistency
+        
+        // 1. First, save to localStorage directly for immediate availability
         localStorage.setItem('tracks', JSON.stringify(formattedTracks));
         localStorage.setItem('approvedTracks', JSON.stringify(formattedTracks));
+        console.log(`Directly saved ${formattedTracks.length} tracks to localStorage`);
         
-        console.log("Tracks saved to localStorage directly to ensure immediate availability");
-        
-        // Then use the storageService for proper synchronization
-        await storageService.saveApprovedTracks(formattedTracks);
-        console.log("Tracks saved to approvedTracks collection");
-        
-        // Explicitly save to main tracks collection as well
-        await storageService.saveData('tracks', formattedTracks);
-        console.log("Tracks saved to main tracks collection");
-        
-        // Force a sync from Gist to local to ensure all storage locations are updated
-        if (window.storageService && window.storageService.hasValidGistSettings) {
-            try {
-                await window.storageService.syncFromGistToLocal();
-                console.log("Force-synced from Gist to local storage after applying tracks");
-            } catch (syncError) {
-                console.error("Error during Gist sync (non-fatal):", syncError);
+        // 2. Then use storageService to save tracks and ensure they're added to the Gist
+        if (window.storageService) {
+            // Wait for saveApprovedTracks to complete
+            await window.storageService.saveApprovedTracks(formattedTracks);
+            console.log(`Saved ${formattedTracks.length} tracks to approvedTracks collection`);
+            
+            // Explicitly save to main tracks collection as well and wait for completion
+            await window.storageService.saveData('tracks', formattedTracks);
+            console.log(`Saved ${formattedTracks.length} tracks to main tracks collection`);
+            
+            // 3. Perform a comprehensive synchronization to ensure all storage is consistent
+            console.log("Performing comprehensive sync to ensure data consistency across all storage...");
+            const syncResult = await window.storageService.forceSyncAll();
+            
+            if (syncResult.success) {
+                console.log(`Sync successful: ${syncResult.tracks.length} tracks synchronized`);
+                
+                // Verify that track counts match what we expect
+                if (syncResult.tracks.length !== formattedTracks.length) {
+                    console.warn(`Track count mismatch after sync: Expected ${formattedTracks.length}, got ${syncResult.tracks.length}`);
+                    
+                    // Re-sync directly to fix any inconsistencies
+                    await window.storageService.saveData('tracks', formattedTracks);
+                    await window.storageService.saveData('approvedTracks', formattedTracks);
+                    
+                    console.log("Re-synchronized track data to fix count mismatch");
+                }
+            } else {
+                console.error("Sync failed:", syncResult.error);
+                
+                // Save directly to Gist as a last resort
+                if (window.storageService.hasValidGistSettings) {
+                    try {
+                        await window.storageService.saveToGist('tracks', formattedTracks);
+                        await window.storageService.saveToGist('approvedTracks', formattedTracks);
+                        console.log("Direct Gist save completed as fallback");
+                    } catch (directSaveError) {
+                        console.error("Error during direct Gist save:", directSaveError);
+                    }
+                }
             }
+        } else {
+            console.warn("StorageService not available for saving tracks");
         }
         
-        // Ensure track collections are synchronized
-        await storageService.syncTrackCollections();
-        console.log("Track collections synchronized");
+        // 4. Verify the data was saved properly by checking localStorage again
+        const savedTracks = JSON.parse(localStorage.getItem('tracks') || '[]');
+        console.log(`Final verification: ${savedTracks.length} tracks in localStorage`);
         
-        alert('Tracks successfully applied to the player! You can now view them in the Player page.');
+        // Reset UI
+        if (applyButton) {
+            applyButton.textContent = 'Apply to Player';
+            applyButton.disabled = false;
+        }
+        
+        alert(`Tracks successfully applied to the player! ${formattedTracks.length} tracks have been saved and synchronized.`);
     } catch (error) {
         console.error('Error applying tracks to player:', error);
-        alert('Failed to apply tracks to player. Please try again.');
+        
+        // Reset UI
+        const applyButton = document.querySelector('#apply-to-player-btn');
+        if (applyButton) {
+            applyButton.textContent = 'Apply to Player';
+            applyButton.disabled = false;
+        }
+        
+        alert(`Failed to apply tracks to player: ${error.message}. Please try again.`);
     }
 }
 
