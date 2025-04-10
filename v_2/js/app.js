@@ -642,46 +642,36 @@ function updateCurrentTrackIndicator() {
     }
 }
 
-// Show fallback indicator for placeholder audio
+// Show a fallback indicator when using embedded audio
 function showFallbackIndicator(reason) {
-    const fallbackIndicator = document.createElement('div');
-    fallbackIndicator.className = 'fallback-indicator';
-    fallbackIndicator.textContent = 'Playing with placeholder audio';
+    // Check if a fallback indicator already exists
+    let fallbackIndicator = document.querySelector('.fallback-indicator');
     
-    if (reason) {
-        // Add a more detailed tooltip
-        fallbackIndicator.title = `Reason: ${reason}`;
-    }
-    
-    // Remove any existing fallback indicator
-    const existingIndicator = document.querySelector('.fallback-indicator');
-    if (existingIndicator) {
-        existingIndicator.remove();
-    }
-    
-    // Add the indicator after the track info
-    const trackInfo = document.querySelector('.track-info');
-    if (trackInfo && trackInfo.parentNode) {
-        trackInfo.parentNode.insertBefore(fallbackIndicator, trackInfo.nextSibling);
+    if (!fallbackIndicator) {
+        // Create a new indicator
+        fallbackIndicator = document.createElement('div');
+        fallbackIndicator.className = 'fallback-indicator';
         
-        // Hide after 5 seconds
-        setTimeout(() => {
-            fallbackIndicator.style.opacity = '0';
-            setTimeout(() => fallbackIndicator.remove(), 1000);
-        }, 5000);
-    } else {
-        // Fallback position if track info container is not found
-        const playerContainer = document.querySelector('.player-container');
-        if (playerContainer) {
-            playerContainer.appendChild(fallbackIndicator);
-            
-            // Hide after 5 seconds
-            setTimeout(() => {
-                fallbackIndicator.style.opacity = '0';
-                setTimeout(() => fallbackIndicator.remove(), 1000);
-            }, 5000);
-        }
+        // Position it below the player controls
+        const playerControls = document.querySelector('.player-controls');
+        playerControls.parentNode.insertBefore(fallbackIndicator, playerControls.nextSibling);
     }
+    
+    // Set or update the message
+    fallbackIndicator.textContent = reason;
+    
+    // Make it visible for 5 seconds then fade out
+    fallbackIndicator.style.opacity = '1';
+    
+    // Clear any existing timeout
+    if (fallbackIndicator.fadeTimeout) {
+        clearTimeout(fallbackIndicator.fadeTimeout);
+    }
+    
+    // Set a new timeout to fade out
+    fallbackIndicator.fadeTimeout = setTimeout(() => {
+        fallbackIndicator.style.opacity = '0';
+    }, 5000);
 }
 
 // Play the current track
