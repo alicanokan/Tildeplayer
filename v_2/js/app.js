@@ -174,18 +174,14 @@ let isPlaying = false;
 let playlist = [];
 let filteredTracks = []; // Will be populated in initPlayer
 
-// Initialize player with embedded audio for all tracks
+// Initialize player with embedded audio only when needed as fallback
 function initializeWithEmbeddedAudio() {
-    console.log("Initializing with embedded audio");
+    console.log("Setting up embedded audio fallbacks");
     
-    // Replace all sample tracks with embedded audio upfront
+    // Don't replace the sources upfront, just save the embedded audio for fallback use later
     tracksData.forEach(track => {
-        // Check if the source is a file path (not a blob or data URI)
-        if (track.src && !track.src.startsWith('blob:') && !track.src.startsWith('data:')) {
-            console.log(`Using embedded audio for sample track: ${track.title}`);
-            track.originalSrc = track.src;
-            track.src = embeddedAudioData;
-        }
+        // Set a fallback property instead of replacing the src
+        track.fallbackSrc = embeddedAudioData;
     });
 }
 
@@ -227,17 +223,25 @@ async function initPlayer() {
 function handleAudioError(e) {
     console.error('Audio error:', e);
     
-    // Try to find a fallback track
-    console.log('Attempting to find fallback for current track');
-    const fallbackTrack = findFallbackTrack();
-    
-    if (fallbackTrack) {
-        console.log('Fallback found, loading alternative track');
-        loadTrack(fallbackTrack);
-        showFallbackIndicator('Audio file not found. Playing a fallback track.');
+    // Check if we have a fallback for this track
+    if (currentTrack && currentTrack.fallbackSrc) {
+        console.log('Using fallback audio for track:', currentTrack.title);
+        audio.src = currentTrack.fallbackSrc;
+        audio.load();
+        showFallbackIndicator(`Using embedded audio for "${currentTrack.title}"`);
     } else {
-        console.error('No fallback track available');
-        showFallbackIndicator('Audio file not found and no fallbacks available.');
+        // Try to find a completely different track as fallback
+        console.log('Attempting to find fallback track');
+        const fallbackTrack = findFallbackTrack();
+        
+        if (fallbackTrack) {
+            console.log('Fallback found, loading alternative track');
+            loadTrack(fallbackTrack);
+            showFallbackIndicator('Audio file not found. Playing a fallback track.');
+        } else {
+            console.error('No fallback track available');
+            showFallbackIndicator('Audio file not found and no fallbacks available.');
+        }
     }
 }
 
@@ -527,99 +531,85 @@ function setupEventListeners() {
     });
 }
 
-// Find a fallback track based on genre/mood if possible
+// Find a fallback track to play when the current track fails
 function findFallbackTrack() {
-    // Create fallback track data with embedded audio
-    const fallbackTrack = {
-        id: 999,
-        title: "TildeSoundArt Sample",
-        artist: "TildeSoundArt",
-        src: embeddedAudioData,
-        albumArt: "assets/images/Tilde_Logo.png",
-        mood: currentTrack ? [...currentTrack.mood] : ["chill"],
-        genre: currentTrack ? [...currentTrack.genre] : ["electronic"]
-    };
-    
-    // If current track exists, preserve its metadata
-    if (currentTrack) {
-        fallbackTrack.title = currentTrack.title;
-        fallbackTrack.artist = currentTrack.artist;
-        fallbackTrack.albumArt = currentTrack.albumArt;
+    // Look for a different track with a fallback source
+    for (const track of tracksData) {
+        if (track.id !== currentTrack?.id && track.fallbackSrc) {
+            return track;
+        }
     }
     
-    console.log("Created fallback track with embedded audio data");
-    return fallbackTrack;
+    // If no fallback found, return the first track with a fallback source
+    for (const track of tracksData) {
+        if (track.fallbackSrc) {
+            return track;
+        }
+    }
+    
+    // If all else fails, return the first track
+    return tracksData.length > 0 ? tracksData[0] : null;
 }
 
-// Load a track into the player
+// Load a track
 function loadTrack(track) {
-    if (!track) {
-        console.error('Cannot load track: track is undefined');
-        return;
-    }
-    
     console.log('Loading track:', track);
+    if (!track) return;
+    
     currentTrack = track;
     
-    // Check if the track data is valid
-    if (!track.title || !track.artist) {
-        console.error('Invalid track data:', track);
-        return;
-    }
+    // Update UI
+    trackTitle.textContent = track.title;
+    trackArtist.textContent = track.artist;
+    albumArt.src = track.albumArt || 'assets/images/Tilde_Logo.png';
     
-    // Update the UI with track information
-    document.getElementById('track-title').textContent = track.title;
-    document.getElementById('track-artist').textContent = track.artist;
+    // Pause any current playback
+    audio.pause();
     
-    // Update album art if available
-    if (track.albumArt) {
-        document.getElementById('album-art').src = track.albumArt;
+    // Reset progress
+    progressBar.style.width = '0%';
+    currentTimeEl.textContent = '0:00';
+    durationEl.textContent = '0:00';
+    
+    // Set audio source
+    // Check if the source is a file path (not a blob or data URI)
+    if (track.src && !track.src.startsWith('blob:') && !track.src.startsWith('data:')) {
+        // Try to load the actual file first
+        console.log('Attempting to load file:', track.src);
+        
+        // Create a temporary audio element to test if the file exists
+        const tempAudio = new Audio();
+        tempAudio.src = track.src;
+        
+        // Set up error handler to use fallback if file not found
+        tempAudio.onerror = function() {
+            console.log(`File not found at ${track.src}, using fallback`);
+            if (track.fallbackSrc) {
+                audio.src = track.fallbackSrc;
+                console.log('Using fallback audio source');
+                showFallbackIndicator(`Using embedded audio for "${track.title}"`);
+            } else {
+                console.error('No fallback audio source available');
+                showFallbackIndicator('Audio file not found and no fallback available');
+            }
+        };
+        
+        // Set up load handler to use the real file if found
+        tempAudio.onloadeddata = function() {
+            console.log(`File found at ${track.src}, using real file`);
+            audio.src = track.src;
+        };
+        
+        // Start loading the file
+        tempAudio.load();
     } else {
-        document.getElementById('album-art').src = 'assets/images/Tilde_Logo.png';
-    }
-    
-    // Update the audio source
-    let embeddedAudioData = null;
-    if (track.audio) {
-        embeddedAudioData = track.audio;
-        console.log('Track has embedded audio data');
-    }
-    
-    // First priority: @audio directory
-    if (track.src && track.src.startsWith('@audio/')) {
-        console.log('Track has @audio path:', track.src);
-        
-        // Check if the file exists in the @audio directory
-        const filename = getFilenameFromPath(track.src);
-        const fullPath = convertAudioPathToUrl(track.src);
-        
-        console.log(`Checking if file exists: ${fullPath}`);
-        
-        // We'll attempt to load this in playTrack, and fallback if needed
-        audio.src = fullPath;
-    } 
-    // Second priority: embedded audio
-    else if (embeddedAudioData) {
-        console.log('Using embedded audio data');
-        audio.src = embeddedAudioData;
-    } 
-    // Third priority: external URL
-    else if (track.src) {
+        // Already using a blob, data URI, or embedded audio
         console.log('Using external URL:', track.src);
         audio.src = track.src;
-    } else {
-        console.error('No audio source found for track:', track);
-        alert('This track does not have audio. Please upload an audio file.');
-        return;
     }
     
+    // Load audio
     audio.load();
-    
-    // Update the progress bar
-    updateProgress();
-    
-    // Update the visual indicator for the current track in tracks list
-    updateCurrentTrackIndicator();
 }
 
 // Update the visual indicator for the currently playing track
