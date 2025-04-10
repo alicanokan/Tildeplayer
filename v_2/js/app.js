@@ -23,7 +23,7 @@ let tracksData = [
         id: 1,
         title: "ID Music 2 - Technology F1",
         artist: "TildeSoundArt",
-        src: "assets/tracks/ID_Music_2_Technology_F1.mp3",
+        src: "assets/tracks/ID Music 2 - (17c-Technology_F1).mp3",
         albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "intense"],
         genre: ["electronic", "rock"],
@@ -33,7 +33,7 @@ let tracksData = [
         id: 2,
         title: "ID Music 7 - TOGG ID MEDIA Funk",
         artist: "TildeSoundArt",
-        src: "assets/tracks/ID_Music_7_TOGG_ID_MEDIA_Funk.mp3",
+        src: "assets/tracks/ID Music 7 - (TOGG_ID MEDIA _Funk).mp3",
         albumArt: "assets/images/Tilde_Logo.png",
         mood: ["energetic", "happy"],
         genre: ["funk", "electronic"],
@@ -174,9 +174,24 @@ async function loadUploadedTracks() {
     function cleanupTrackSrcPaths(tracks) {
         if (!tracks || !Array.isArray(tracks)) return tracks;
         
+        // Create a mapping of known tracks with their exact filenames
+        const exactFilenameMappings = {
+            "ID Music 2 - Technology F1": "ID Music 2 - (17c-Technology_F1).mp3",
+            "ID Music 7 - TOGG ID MEDIA Funk": "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3"
+        };
+        
         return tracks.map(track => {
             // Clone the track to avoid modifying the original
             const cleanTrack = {...track};
+            
+            // Special case for tracks with known exact filenames
+            if (exactFilenameMappings[track.title]) {
+                console.log(`Special handling for track: "${track.title}"`);
+                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+                cleanTrack.src = `${baseDir}${exactFilenameMappings[track.title]}`;
+                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+                return cleanTrack;
+            }
             
             // Special case for the ID Music 2 track - always use the original filename with spaces and parentheses
             if (cleanTrack.title === "ID Music 2 - Technology F1" || 
@@ -185,6 +200,17 @@ async function loadUploadedTracks() {
                 console.log(`Special handling for ID Music 2 track`);
                 const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
                 cleanTrack.src = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
+                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+                return cleanTrack;
+            }
+            
+            // Special case for ID Music 7 track
+            if (cleanTrack.title === "ID Music 7 - TOGG ID MEDIA Funk" || 
+                (cleanTrack.src && cleanTrack.src.includes("ID_Music_7_TOGG_ID_MEDIA__Funk"))) {
+                
+                console.log(`Special handling for ID Music 7 track`);
+                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+                cleanTrack.src = `${baseDir}ID Music 7 - (TOGG_ID MEDIA _Funk).mp3`;
                 console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
                 return cleanTrack;
             }
@@ -461,24 +487,36 @@ function handleAudioError(error) {
     
     console.error(`Error playing track "${currentTrack.title}":`, error);
     
-    // Special case for ID Music 2 track - try using the exact original filename
-    if (currentTrack.title === "ID Music 2 - Technology F1" || 
-        (currentTrack.src && (currentTrack.src.includes("ID_Music_2_17cTechnology_F1") || 
-                             currentTrack.src.includes("ID Music 2 - (17c-Technology_F1)")))) {
+    // Create a mapping of track titles to their exact filenames
+    const trackMappings = {
+        "ID Music 2 - Technology F1": {
+            exact: "ID Music 2 - (17c-Technology_F1).mp3",
+            simplified: "ID_Music_2_17cTechnology_F1.mp3"
+        },
+        "ID Music 7 - TOGG ID MEDIA Funk": {
+            exact: "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3",
+            simplified: "ID_Music_7_TOGG_ID_MEDIA__Funk.mp3"
+        }
+    };
+    
+    // Special case for known tracks with exact filenames
+    if (currentTrack.title in trackMappings) {
+        console.log(`Special handling for track "${currentTrack.title}" error`);
         
-        console.log("Special handling for ID Music 2 track error");
-        
-        // Try the alternative filename
+        // Get base directory from current src
         const baseDir = currentTrack.src.substring(0, currentTrack.src.lastIndexOf('/') + 1);
+        const mapping = trackMappings[currentTrack.title];
         
-        // If current src has spaces and parentheses, try without; otherwise try with them
+        // Determine which filename format to try
         let newSrc;
-        if (currentTrack.src.includes("ID Music 2 - (17c-Technology_F1)")) {
-            newSrc = `${baseDir}ID_Music_2_17cTechnology_F1.mp3`;
-            console.log(`Trying without spaces and parentheses: ${newSrc}`);
+        if (currentTrack.src.includes(mapping.exact)) {
+            // Currently using exact filename, try simplified
+            newSrc = `${baseDir}${mapping.simplified}`;
+            console.log(`Trying simplified filename: ${newSrc}`);
         } else {
-            newSrc = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
-            console.log(`Trying with spaces and parentheses: ${newSrc}`);
+            // Try the exact filename with spaces and parentheses
+            newSrc = `${baseDir}${mapping.exact}`;
+            console.log(`Trying exact filename: ${newSrc}`);
         }
         
         // Update the track's src
@@ -536,6 +574,18 @@ function setAudioSource(track) {
         // Log the track information for debugging
         console.log(`Setting audio source for track: "${track.title}" with src: ${track.src}`);
         
+        // Create a mapping of track titles to their exact filenames
+        const exactFilenameMappings = {
+            "ID Music 2 - Technology F1": "ID Music 2 - (17c-Technology_F1).mp3",
+            "ID Music 7 - TOGG ID MEDIA Funk": "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3"
+        };
+        
+        // Create a mapping of incorrect src patterns to their correct replacements
+        const srcPatternMappings = {
+            "ID_Music_2_17cTechnology_F1": "ID Music 2 - (17c-Technology_F1)",
+            "ID_Music_7_TOGG_ID_MEDIA__Funk": "ID Music 7 - (TOGG_ID MEDIA _Funk)"
+        };
+        
         if (track.usingFallback && track.embeddedAudio) {
             // Use embedded audio as fallback
             audio.src = track.embeddedAudio;
@@ -550,7 +600,8 @@ function setAudioSource(track) {
             // Use file path as primary source
             audio.src = track.filePath;
             console.log(`Using file path for track "${track.title}": ${track.filePath}`);
-            
+            return true;
+        } else if (track.src) {
             // Check if the src contains any potential issues
             if (track.src.includes('_Unknown_Artist_')) {
                 // Fix the src path on the fly
@@ -564,28 +615,39 @@ function setAudioSource(track) {
                 console.log(`Fixed track src path on the fly to: ${track.src}`);
             }
             
-            // Special case fix for Technology F1 track with incorrect filename
-            if (track.title === "ID Music 2 - Technology F1" || 
-                (track.src && track.src.includes("ID_Music_2_17cTechnology_F1"))) {
-                
-                // Try with the exact original filename
+            // Check if track title has a known exact filename mapping
+            if (exactFilenameMappings[track.title]) {
                 const baseDir = track.src.substring(0, track.src.lastIndexOf('/') + 1);
-                const correctedSrc = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
-                console.log(`Trying corrected src: ${correctedSrc}`);
+                const correctedSrc = `${baseDir}${exactFilenameMappings[track.title]}`;
+                console.log(`Trying mapped filename: ${correctedSrc}`);
                 
                 // Save original src in case we need to revert
                 track.originalSrc = track.src;
                 track.src = correctedSrc;
+            } else {
+                // Check if src contains any known incorrect patterns
+                for (const [pattern, replacement] of Object.entries(srcPatternMappings)) {
+                    if (track.src.includes(pattern)) {
+                        const baseDir = track.src.substring(0, track.src.lastIndexOf('/') + 1);
+                        const correctedSrc = `${baseDir}${replacement}.mp3`;
+                        console.log(`Correcting src pattern from ${pattern} to ${replacement}: ${correctedSrc}`);
+                        
+                        // Save original src
+                        track.originalSrc = track.src;
+                        track.src = correctedSrc;
+                        break;
+                    }
+                }
             }
             
             // Use the src property
             audio.src = track.src;
             console.log(`Using src for track "${track.title}": ${track.src}`);
             
-            // For specific track, also set up an error handler to try alternative paths
-            if (track.title === "ID Music 2 - Technology F1" || 
-                track.src.includes("ID Music 2 - (17c-Technology_F1).mp3") ||
-                track.src.includes("ID_Music_2_17cTechnology_F1.mp3")) {
+            // For specific tracks, also set up an error handler to try alternative paths
+            const knownTracks = ["ID Music 2 - Technology F1", "ID Music 7 - TOGG ID MEDIA Funk"];
+            if (knownTracks.includes(track.title) || 
+                Object.values(srcPatternMappings).some(pattern => track.src.includes(pattern))) {
                 
                 // Add one-time error listener to try alternative src if this one fails
                 const errorHandler = function() {
@@ -598,12 +660,34 @@ function setAudioSource(track) {
                     const baseDir = track.src.substring(0, track.src.lastIndexOf('/') + 1);
                     let alternativeSrc;
                     
-                    if (track.src.includes("ID Music 2 - (17c-Technology_F1).mp3")) {
-                        // Try the cleaned up version
-                        alternativeSrc = `${baseDir}ID_Music_2_17cTechnology_F1.mp3`;
-                    } else {
-                        // Try the original filename with spaces and parentheses
-                        alternativeSrc = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
+                    // If the track has a simplified name pattern, try the original with spaces and parentheses
+                    const isSimplified = Object.keys(srcPatternMappings).some(pattern => track.src.includes(pattern));
+                    const isExact = Object.values(srcPatternMappings).some(pattern => track.src.includes(pattern));
+                    
+                    if (isExact) {
+                        // Currently using exact name with spaces and parentheses, try simplified
+                        for (const [simplified, exact] of Object.entries(srcPatternMappings)) {
+                            if (track.src.includes(exact)) {
+                                alternativeSrc = `${baseDir}${simplified}.mp3`;
+                                break;
+                            }
+                        }
+                    } else if (isSimplified) {
+                        // Currently using simplified, try exact with spaces and parentheses
+                        for (const [simplified, exact] of Object.entries(srcPatternMappings)) {
+                            if (track.src.includes(simplified)) {
+                                alternativeSrc = `${baseDir}${exact}.mp3`;
+                                break;
+                            }
+                        }
+                    } else if (track.title in exactFilenameMappings) {
+                        // Use known mapping from title
+                        alternativeSrc = `${baseDir}${exactFilenameMappings[track.title]}`;
+                    }
+                    
+                    if (!alternativeSrc) {
+                        console.log("No alternative src found, giving up");
+                        return;
                     }
                     
                     console.log(`Trying alternative src: ${alternativeSrc}`);
