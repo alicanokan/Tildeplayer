@@ -1457,10 +1457,58 @@ function pauseTrack() {
 
 // Toggle play/pause
 function togglePlayPause() {
+    console.log('Toggling play/pause state. Current state:', isPlaying);
+    
     if (isPlaying) {
         pauseTrack();
-    }else {
+    } else {
         playTrack();
+    }
+    
+    // Update all play/pause buttons in the UI
+    updatePlayPauseState(isPlaying);
+}
+
+// Update play/pause button state across all UI elements
+function updatePlayPauseState(playing) {
+    isPlaying = playing;
+    
+    // Update main player button
+    const playBtn = document.getElementById('play-btn');
+    if (playBtn) {
+        playBtn.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
+    }
+    
+    // Update mini player button
+    const playPauseBtn = document.querySelector('.play-pause-btn');
+    if (playPauseBtn) {
+        playPauseBtn.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
+    }
+    
+    // Update any other play/pause buttons in the UI
+    const otherPlayPauseBtn = document.getElementById('play-pause-btn');
+    if (otherPlayPauseBtn) {
+        otherPlayPauseBtn.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
+    }
+    
+    // Update the currently playing track's play button
+    if (currentTrack) {
+        const trackItems = document.querySelectorAll('.track-item');
+        trackItems.forEach(item => {
+            if (item.dataset.trackId === currentTrack.id.toString()) {
+                const playButton = item.querySelector('.play-track-btn');
+                if (playButton) {
+                    playButton.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
+                }
+                item.classList.add('now-playing');
+            } else {
+                item.classList.remove('now-playing');
+                const playButton = item.querySelector('.play-track-btn');
+                if (playButton) {
+                    playButton.innerHTML = '<i class="fas fa-play"></i>';
+                }
+            }
+        });
     }
 }
 
@@ -1873,6 +1921,8 @@ function toggleFilterButton(button, filterType) {
 
 // Apply filters to tracks
 function applyFilters() {
+    console.log('Applying filters...');
+    
     const activeMoodFilters = Array.from(document.querySelectorAll('.mood-btn.active'))
         .map(btn => btn.dataset.mood);
     
@@ -1882,22 +1932,56 @@ function applyFilters() {
     const activeDurationFilters = Array.from(document.querySelectorAll('.duration-btn.active'))
         .map(btn => btn.dataset.duration);
     
+    console.log('Active filters:', {
+        mood: activeMoodFilters,
+        genre: activeGenreFilters,
+        duration: activeDurationFilters
+    });
+    
     filteredTracks = tracksData.filter(track => {
+        // Ensure mood and genre are arrays
+        const trackMoods = Array.isArray(track.mood) ? track.mood : 
+                          (track.mood ? [track.mood] : []);
+        
+        const trackGenres = Array.isArray(track.genre) ? track.genre : 
+                           (track.genre ? [track.genre] : []);
+        
+        // For tags, check if they contain any of the mood or genre keywords
+        if (track.tags && Array.isArray(track.tags)) {
+            track.tags.forEach(tag => {
+                // Check if this tag matches any mood
+                activeMoodFilters.forEach(mood => {
+                    if (tag.toLowerCase().includes(mood.toLowerCase())) {
+                        trackMoods.push(mood);
+                    }
+                });
+                
+                // Check if this tag matches any genre
+                activeGenreFilters.forEach(genre => {
+                    if (tag.toLowerCase().includes(genre.toLowerCase())) {
+                        trackGenres.push(genre);
+                    }
+                });
+            });
+        }
+        
         // If no mood filters selected, pass mood check
         const passMoodFilter = activeMoodFilters.length === 0 || 
-            track.mood.some(mood => activeMoodFilters.includes(mood));
+            trackMoods.some(mood => activeMoodFilters.includes(mood));
         
         // If no genre filters selected, pass genre check
         const passGenreFilter = activeGenreFilters.length === 0 || 
-            track.genre.some(genre => activeGenreFilters.includes(genre));
+            trackGenres.some(genre => activeGenreFilters.includes(genre));
         
         // If no duration filters selected, pass duration check
+        const trackDuration = track.duration || 'medium';
         const passDurationFilter = activeDurationFilters.length === 0 || 
-            activeDurationFilters.includes(track.duration);
+            activeDurationFilters.includes(trackDuration);
         
         return passMoodFilter && passGenreFilter && passDurationFilter;
     });
     
+    console.log(`Filtered tracks: ${filteredTracks.length} of ${tracksData.length}`);
     renderTracks(filteredTracks);
     
     // Update current track indicator after rendering tracks
@@ -2179,320 +2263,20 @@ function loadTrack(trackOrIndex) {
 }
 
 /**
- * Update the play/pause button state
- * @param {boolean}isPlaying - Whether the audio is currently playing
- */
-function updatePlayPauseState(playing) {
-    isPlaying = playing;
-    
-    if (playing) {
-        playBtn.innerHTML = '<i class="fas fa-pause"></i>';
-    }else {
-        playBtn.innerHTML = '<i class="fas fa-play"></i>';
-    }
-    
-    // Update the visual indicator for the current track
-    updateCurrentTrackIndicator();
-}
-
-// Add this function near the other rendering functions
-/**
- * Render the list of tracks in the track catalog
- */
-function renderTrackList() {
-    // Make function globally available
-    window.renderTrackList = renderTrackList;
-    
-    // Reference global variables
-    const tracksData = window.tracksData || [];
-    let filteredTracks = window.filteredTracks || [];
-    
-    // Get the tracks container
-    const tracksContainer = document.getElementById('tracks-container');
-    
-    if (!tracksContainer) {
-        console.error('Track container not found (element with ID "tracks-container")');
-        return;
-    }
-    
-    console.log(`Rendering track list with ${tracksData.length} total tracks and ${filteredTracks.length} filtered tracks`);
-    
-    // Debug info about the global tracksData and filteredTracks
-    console.log(`Global tracksData: ${window.tracksData ? window.tracksData.length : 'undefined'} tracks`);
-    console.log(`Global filteredTracks: ${window.filteredTracks ? window.filteredTracks.length : 'undefined'} tracks`);
-    
-    // Clear any existing tracks
-    tracksContainer.innerHTML = '';
-    
-    // Set filteredTracks to all tracks initially if it's empty
-    if (filteredTracks.length === 0 && tracksData.length > 0) {
-        console.log('filteredTracks is empty, using all tracks');
-        filteredTracks = [...tracksData];
-        window.filteredTracks = filteredTracks; // Update global
-    }
-    
-    // If we still don't have tracks to display, show a message
-    if (filteredTracks.length === 0) {
-        console.warn('No tracks to display');
-        tracksContainer.innerHTML = `
-            <div class="no-tracks-message">
-                <p>No tracks available to display.</p>
-                <p>Try refreshing or adding some tracks.</p>
-                <button id="force-refresh-btn" class="primary-button">Force Refresh</button>
-            </div>
-        `;
-        
-        // Add event listener to force refresh button
-        const forceRefreshBtn = document.getElementById('force-refresh-btn');
-        if (forceRefreshBtn) {
-            forceRefreshBtn.addEventListener('click', () => {
-                // Try to use uploadHandler if available
-                if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
-                    console.log('Forcing refresh using uploadHandler.forceRefresh()');
-                    window.uploadHandler.forceRefresh();
-                } else if (window.storageService && typeof window.storageService.syncFromGistToLocal === 'function') {
-                    console.log('Forcing refresh using storageService.syncFromGistToLocal()');
-                    window.storageService.syncFromGistToLocal().then(() => {
-                        // Reload the page to ensure everything is fresh
-                        window.location.reload();
-                    });
-                } else {
-                    console.log('No refresh method available, reloading page');
-                    window.location.reload();
-                }
-            });
-        }
-        
-        return;
-    }
-    
-    // Render each track
-    filteredTracks.forEach(track => {
-        const trackItem = document.createElement('div');
-        trackItem.className = 'track-item';
-        trackItem.dataset.trackId = track.id;
-        
-        // Create mood and genre tags HTML
-        let moodTags = '';
-        if (track.mood && track.mood.length > 0) {
-            moodTags = track.mood.map(mood => 
-                `<span class="tag mood">${mood}</span>`
-            ).join('');
-        }
-        
-        let genreTags = '';
-        if (track.genre && track.genre.length > 0) {
-            genreTags = track.genre.map(genre => 
-                `<span class="tag genre">${genre}</span>`
-            ).join('');
-        }
-        
-        // Set the track item HTML
-        trackItem.innerHTML = `
-            <div class="track-info">
-                <h4>${track.title}</h4>
-                <p>${track.artist}</p>
-                <div class="track-tags">
-                    ${moodTags}
-                    ${genreTags}
-                    ${track.duration ? `<span class="tag duration">${track.duration}</span>` : ''}
-                </div>
-            </div>
-            <div class="track-actions">
-                <button class="play-track-btn"><i class="fas fa-play"></i></button>
-                <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
-                <button class="edit-track-btn" title="Edit track"><i class="fas fa-edit"></i></button>
-            </div>
-        `;
-        
-        // Add event listeners
-        const playButton = trackItem.querySelector('.play-track-btn');
-        playButton.addEventListener('click', () => {
-            loadTrack(track);
-            playTrack();
-        });
-        
-        const addToPlaylistButton = trackItem.querySelector('.add-to-playlist-btn');
-        addToPlaylistButton.addEventListener('click', () => {
-            addToPlaylist(track);
-        });
-        
-        // Add the track item to the container
-        tracksContainer.appendChild(trackItem);
-    });
-    
-    // Update current track indicator
-    if (currentTrack) {
-        updateCurrentTrackIndicator();
-    }
-}
-
-/**
- * Render a specific list of tracks in the catalog
- * @param {Array}tracks - The tracks to render
- */
-function renderTracks(tracks) {
-    if (!tracksContainer) {
-        console.error('Track container not found');
-        return;
-    }
-    
-    console.log('Rendering filtered track list with', tracks.length, 'tracks');
-    
-    // Clear any existing tracks
-    tracksContainer.innerHTML = '';
-    
-    if (tracks.length === 0) {
-        // Show a message if no tracks match the filters
-        tracksContainer.innerHTML = `
-            <div class="no-tracks-message">
-                <p>No tracks match your filter criteria.</p>
-                <button id="reset-filters-btn">Reset Filters</button>
-            </div>
-        `;
-        
-        // Add event listener to reset filters button
-        const resetFiltersBtn = document.getElementById('reset-filters-btn');
-        if (resetFiltersBtn) {
-            resetFiltersBtn.addEventListener('click', () => {
-                // Reset all filter buttons
-                document.querySelectorAll('.mood-btn, .genre-btn, .duration-btn').forEach(btn => {
-                    btn.classList.remove('active');
-                });
-                
-                // Reset filteredTracks to all tracks
-                filteredTracks = [...tracksData];
-                
-                // Render all tracks
-                renderTrackList();
-            });
-        }
-        
-        return;
-    }
-    
-    // Render each track
-    tracks.forEach(track => {
-        const trackItem = document.createElement('div');
-        trackItem.className = 'track-item';
-        trackItem.dataset.trackId = track.id;
-        
-        // Create mood and genre tags HTML
-        let moodTags = '';
-        if (track.mood && track.mood.length > 0) {
-            moodTags = track.mood.map(mood => 
-                `<span class="tag mood">${mood}</span>`
-            ).join('');
-        }
-        
-        let genreTags = '';
-        if (track.genre && track.genre.length > 0) {
-            genreTags = track.genre.map(genre => 
-                `<span class="tag genre">${genre}</span>`
-            ).join('');
-        }
-        
-        // Set the track item HTML
-        trackItem.innerHTML = `
-            <div class="track-info">
-                <h4>${track.title}</h4>
-                <p>${track.artist}</p>
-                <div class="track-tags">
-                    ${moodTags}
-                    ${genreTags}
-                    ${track.duration ? `<span class="tag duration">${track.duration}</span>` : ''}
-                </div>
-            </div>
-            <div class="track-actions">
-                <button class="play-track-btn"><i class="fas fa-play"></i></button>
-                <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
-                <button class="edit-track-btn" title="Edit track"><i class="fas fa-edit"></i></button>
-            </div>
-        `;
-        
-        // Add event listeners
-        const playButton = trackItem.querySelector('.play-track-btn');
-        playButton.addEventListener('click', () => {
-            loadTrack(track);
-            playTrack();
-        });
-        
-        const addToPlaylistButton = trackItem.querySelector('.add-to-playlist-btn');
-        addToPlaylistButton.addEventListener('click', () => {
-            addToPlaylist(track);
-        });
-        
-        // Add the track item to the container
-        tracksContainer.appendChild(trackItem);
-    });
-}
-
-/**
- * Seek to a position in the track
- * @param {Event}event - The input event from the progress slider
- */
-function seekTrack(event) {
-    if (!audio.duration) return;
-    const seekPosition = parseFloat(event.target.value);
-    audio.currentTime = (seekPosition / 100) * audio.duration;
-    updateProgress();
-}
-
-/**
- * Set the volume level
- * @param {number}volume - Volume level between 0 and 1
- */
-function setVolume(volume) {
-    if (volume < 0) volume = 0;
-    if (volume > 1) volume = 1;
-    
-    audio.volume = volume;
-    
-    // Save the volume setting to localStorage
-    localStorage.setItem('volume', volume.toString());
-    
-    // Update volume icon based on level
-    const volumeIcon = document.querySelector('.volume-container i');
-    if (volumeIcon) {
-        if (volume === 0) {
-            volumeIcon.className = 'fas fa-volume-mute';
-        }else if (volume < 0.5) {
-            volumeIcon.className = 'fas fa-volume-down';
-        }else {
-            volumeIcon.className = 'fas fa-volume-up';
-        }
-    }
-}
-
-/**
- * Play the next track in the list
- */
-function playNextTrack() {
-    console.log('Playing next track');
-    nextTrack();
-}
-
-/**
- * Play the previous track in the list
- */
-function playPreviousTrack() {
-    console.log('Playing previous track');
-    prevTrack();
-}
-
-/**
  * Set up event listeners for UI elements
  */
 function setupEventListeners() {
-    // Audio control buttons
-    document.getElementById('play-pause-btn').addEventListener('click', togglePlayPause);
-    document.getElementById('next-btn').addEventListener('click', playNext);
-    document.getElementById('prev-btn').addEventListener('click', playPrevious);
-    document.getElementById('refresh-btn')?.addEventListener('click', () => {
-        if (window.uploadHandler && typeof window.uploadHandler.forceRefresh === 'function') {
-            window.uploadHandler.forceRefresh();
-        }
-    });
+    console.log('Setting up event listeners...');
+    
+    // Player control buttons
+    document.getElementById('play-pause-btn')?.addEventListener('click', togglePlayPause);
+    document.getElementById('next-btn')?.addEventListener('click', playNext);
+    document.getElementById('prev-btn')?.addEventListener('click', playPrevious);
+    
+    // Also attach listeners to the main player buttons if they exist
+    document.querySelector('.play-pause-btn')?.addEventListener('click', togglePlayPause);
+    document.querySelector('.prev-btn')?.addEventListener('click', playPrevious);
+    document.querySelector('.next-btn')?.addEventListener('click', playNext);
     
     // Progress slider
     const progressSlider = document.getElementById('progress-slider');
