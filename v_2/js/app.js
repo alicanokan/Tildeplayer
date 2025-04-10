@@ -61,6 +61,36 @@ const sampleTracks = [
         mood: ["chill", "relaxed"],
         genre: ["lofi"],
         duration: "medium"
+    },
+    {
+        id: 5,
+        title: "ID Music 5 - StompRock",
+        artist: "TildeSoundArt",
+        src: "assets/tracks/ID Music 5 - (16c-StompRock_F1).mp3",
+        albumArt: "assets/images/Tilde_Logo.png",
+        mood: ["energetic", "intense"],
+        genre: ["rock"],
+        duration: "medium"
+    },
+    {
+        id: 6,
+        title: "ID Music 6 - Synthpop",
+        artist: "TildeSoundArt",
+        src: "assets/tracks/ID Music 6 - (ID_SYNTHPOP_60) 1.mp3",
+        albumArt: "assets/images/Tilde_Logo.png",
+        mood: ["energetic", "happy"],
+        genre: ["electronic", "pop"],
+        duration: "medium"
+    },
+    {
+        id: 7,
+        title: "ID Music 7 - TOGG ID MEDIA Funk", 
+        artist: "TildeSoundArt",
+        src: "assets/tracks/ID Music 7 - (TOGG_ID MEDIA _Funk).mp3",
+        albumArt: "assets/images/Tilde_Logo.png",
+        mood: ["energetic", "happy"],
+        genre: ["funk"],
+        duration: "medium"
     }
 ];
 
@@ -74,7 +104,7 @@ function loadUploadedTracks() {
     // Step 1: Start by checking the assets directory for tracks
     scanAssetsDirectoryForTracks()
         .then(assetsTrackFiles => {
-            console.log(`Found ${assetsTrackFiles.length} track files in assets directory`);
+            console.log(`Found ${assetsTrackFiles.length}track files in assets directory`);
             
             // Step 2: Try to load tracks from storage
             return storageService.loadData('tracks')
@@ -96,11 +126,11 @@ function loadUploadedTracks() {
                             
                             // Merge assets tracks with local tracks and process them
                             processAndUseDiscoveredTracks(assetsTrackFiles, localTracks);
-                        } catch (parseErr) {
+                        }catch (parseErr) {
                             console.error("Error parsing tracks from localStorage:", parseErr);
                             processAndUseDiscoveredTracks(assetsTrackFiles, []);
                         }
-                    } else {
+                    }else {
                         console.log("No tracks found in localStorage");
                         processAndUseDiscoveredTracks(assetsTrackFiles, []);
                     }
@@ -164,7 +194,7 @@ async function loadUploadedTracks() {
                     storageTracksFound = true;
                     mergeTracksWithoutDuplicates(localStorageTracks);
                 }
-            } catch (localStorageError) {
+            }catch (localStorageError) {
                 console.error('Error parsing tracks from localStorage:', localStorageError);
             }
             
@@ -181,7 +211,7 @@ async function loadUploadedTracks() {
                         storageTracksFound = true;
                         mergeTracksWithoutDuplicates(syncedTracks);
                     }
-                } catch (syncError) {
+                }catch (syncError) {
                     console.error('Error syncing from Gist:', syncError);
                 }
             }
@@ -190,7 +220,7 @@ async function loadUploadedTracks() {
         // Process the final merged track list
         processAndUseDiscoveredTracks();
         
-    } catch (error) {
+    }catch (error) {
         console.error('Error loading tracks:', error);
         
         // Try localStorage as fallback
@@ -200,15 +230,15 @@ async function loadUploadedTracks() {
                 console.log('Using localStorage fallback for tracks:', localStorageTracks.length);
                 mergeTracksWithoutDuplicates(localStorageTracks);
                 processAndUseDiscoveredTracks();
-            } else {
+            }else {
                 // If still no tracks, use the sample tracks as a last resort
                 useSampleTracksAsFallback();
             }
-        } catch (fallbackError) {
+        }catch (fallbackError) {
             console.error('Fallback loading failed, using discovered directory tracks:', fallbackError);
             if (allTracks.length > 0) {
                 processAndUseDiscoveredTracks();
-            } else {
+            }else {
                 useSampleTracksAsFallback();
             }
         }
@@ -234,7 +264,7 @@ async function loadUploadedTracks() {
                 title: `ID Music ${i}`,
                 artist: "TildeSoundArt",
                 // We'll use the discovered filename patterns
-                src: `assets/tracks/ID Music ${i} - (NEED_SCAN).mp3`,
+                src: `assets/tracks/ID Music ${i}- (NEED_SCAN).mp3`,
                 albumArt: "assets/images/Tilde_Logo.png",
                 mood: ["energetic", "intense"],
                 genre: ["electronic"],
@@ -270,7 +300,7 @@ async function loadUploadedTracks() {
             const matchingTrack = potentialTracks.find(track => track.index === file.index);
             if (matchingTrack) {
                 matchingTrack.src = `assets/tracks/${file.filename}`;
-                matchingTrack.title = `ID Music ${file.index} - ${getTrackTitle(file.filename)}`;
+                matchingTrack.title = `ID Music ${file.index}- ${getTrackTitle(file.filename)}`;
                 matchingTrack.needsFileDiscovery = false;
                 
                 // Assign appropriate mood and genre based on filename
@@ -288,7 +318,7 @@ async function loadUploadedTracks() {
             }
         });
         
-        console.log(`Found ${allTracks.length} tracks in the assets directory`);
+        console.log(`Found ${allTracks.length}tracks in the assets directory`);
         
         // Test each track by trying to load it
         for (const track of allTracks) {
@@ -328,7 +358,7 @@ async function loadUploadedTracks() {
             try {
                 audio.src = track.src;
                 audio.load();
-            } catch (e) {
+            }catch (e) {
                 clearTimeout(timeout);
                 console.error(`Error testing track: ${e}`);
                 track.fileExists = false;
@@ -372,27 +402,27 @@ async function loadUploadedTracks() {
         // Detect mood
         if (lowerFilename.includes('chill') || lowerFilename.includes('lofi')) {
             result.mood = ["chill", "relaxed"];
-        } else if (lowerFilename.includes('rock')) {
+        }else if (lowerFilename.includes('rock')) {
             result.mood = ["energetic", "intense"];
             result.genre = ["rock"];
-        } else if (lowerFilename.includes('optimistic')) {
+        }else if (lowerFilename.includes('optimistic')) {
             result.mood = ["happy", "energetic"];
-        } else if (lowerFilename.includes('funk')) {
+        }else if (lowerFilename.includes('funk')) {
             result.mood = ["energetic", "happy"];
             result.genre = ["funk"];
-        } else if (lowerFilename.includes('piano')) {
+        }else if (lowerFilename.includes('piano')) {
             result.mood = ["chill", "focus"];
             result.genre = ["classical"];
-        } else if (lowerFilename.includes('corporate')) {
+        }else if (lowerFilename.includes('corporate')) {
             result.mood = ["focus", "energetic"];
             result.genre = ["electronic"];
-        } else if (lowerFilename.includes('future') || lowerFilename.includes('futuristic')) {
+        }else if (lowerFilename.includes('future') || lowerFilename.includes('futuristic')) {
             result.mood = ["focus", "energetic"];
             result.genre = ["electronic"];
-        } else if (lowerFilename.includes('synthwave') || lowerFilename.includes('synthpop')) {
+        }else if (lowerFilename.includes('synthwave') || lowerFilename.includes('synthpop')) {
             result.mood = ["intense", "energetic"];
             result.genre = ["electronic"];
-        } else if (lowerFilename.includes('hiphop')) {
+        }else if (lowerFilename.includes('hiphop')) {
             result.mood = ["energetic"];
             result.genre = ["hiphop"];
         }
@@ -459,11 +489,11 @@ async function loadUploadedTracks() {
             // Show notification about the loaded tracks
             const newTrackCount = validatedTracks.length - tracksData.length;
             if (newTrackCount > 0) {
-                showNotification(`Loaded ${validatedTracks.length} tracks (${newTrackCount} new)`);
-            } else {
-                showNotification(`Loaded ${validatedTracks.length} tracks from all sources`);
+                showNotification(`Loaded ${validatedTracks.length}tracks (${newTrackCount} new)`);
+            }else {
+                showNotification(`Loaded ${validatedTracks.length}tracks from all sources`);
             }
-        } else {
+        }else {
             console.error('No valid tracks found in loaded data');
             useSampleTracksAsFallback();
         }
@@ -543,7 +573,7 @@ async function saveTracksData() {
     try {
         await storageService.saveData('tracks', tracksData);
         console.log('Tracks saved successfully');
-    } catch (error) {
+    }catch (error) {
         console.error('Error saving tracks:', error);
     }
 }
@@ -681,13 +711,13 @@ function initPlayer() {
             
             // Set the playback position
             audio.currentTime = lastPlayedPosition;
-        } else {
+        }else {
             // If track not found, load the first track
             if (tracksData.length > 0) {
                 loadTrack(0);
             }
         }
-    } else if (tracksData.length > 0) {
+    }else if (tracksData.length > 0) {
         // Load the first track if no last played track
         loadTrack(0);
     }
@@ -720,7 +750,7 @@ function showRetryAttempt(track, attemptNumber, maxRetries) {
         setTimeout(() => {
             playerNotification.classList.remove('show');
         }, 3000);
-    } else {
+    }else {
         // Create notification element if it doesn't exist
         const notification = document.createElement('div');
         notification.id = 'player-notification';
@@ -812,7 +842,7 @@ function handleAudioError(error) {
             // Currently using exact filename, try simplified
             newSrc = `${baseDir}${mapping.simplified}`;
             console.log(`Trying simplified filename: ${newSrc}`);
-        } else {
+        }else {
             // Try the exact filename with spaces and parentheses
             newSrc = `${baseDir}${mapping.exact}`;
             console.log(`Trying exact filename: ${newSrc}`);
@@ -833,7 +863,7 @@ function handleAudioError(error) {
     // Try again a few times before giving up
     if (currentTrack.retryCount < MAX_RETRY_ATTEMPTS) {
         currentTrack.retryCount++;
-        console.log(`Retry attempt ${currentTrack.retryCount} for track "${currentTrack.title}"`);
+        console.log(`Retry attempt ${currentTrack.retryCount}for track "${currentTrack.title}"`);
         
         // Short delay before retrying
         setTimeout(() => {
@@ -843,19 +873,19 @@ function handleAudioError(error) {
                 currentTrack.usingFallback = true;
                 setAudioSource(currentTrack);
                 playTrack();
-            } else if (currentTrack.filePath) {
+            }else if (currentTrack.filePath) {
                 // Just retry with the same source
                 console.log(`Retrying same source for "${currentTrack.title}"`);
                 setAudioSource(currentTrack);
                 playTrack();
-            } else {
+            }else {
                 showNotification('Unable to play track', 'error');
                 console.error('No valid audio source available for track');
             }
         }, 1000);
-    } else {
+    }else {
         // Give up after MAX_RETRY_ATTEMPTS
-        console.error(`Failed to play track "${currentTrack.title}" after ${MAX_RETRY_ATTEMPTS} attempts`);
+        console.error(`Failed to play track "${currentTrack.title}" after ${MAX_RETRY_ATTEMPTS}attempts`);
         showNotification(`Unable to play "${currentTrack.title}" after multiple attempts`, 'error');
         
         // Move to next track
@@ -931,17 +961,17 @@ function setAudioSource(track) {
             audio.src = track.embeddedAudio;
             console.log(`Using embedded audio for track "${track.title}"`);
             return true;
-        } else if (track.usingFallback && track.fallbackSrc) {
+        }else if (track.usingFallback && track.fallbackSrc) {
             // Use fallback source
             audio.src = track.fallbackSrc;
             console.log(`Using fallback source for track "${track.title}"`);
             return true;
-        } else if (track.filePath) {
+        }else if (track.filePath) {
             // Use file path as primary source
             audio.src = track.filePath;
             console.log(`Using file path for track "${track.title}": ${track.filePath}`);
             return true;
-        } else if (track.src) {
+        }else if (track.src) {
             // Check if the src contains any potential issues
             if (track.src.includes('_Unknown_Artist_')) {
                 // Fix the src path on the fly
@@ -964,13 +994,13 @@ function setAudioSource(track) {
                 // Save original src in case we need to revert
                 track.originalSrc = track.src;
                 track.src = correctedSrc;
-            } else {
+            }else {
                 // Check if src contains any known incorrect patterns
                 for (const [pattern, replacement] of Object.entries(srcPatternMappings)) {
                     if (track.src.includes(pattern)) {
                         const baseDir = track.src.substring(0, track.src.lastIndexOf('/') + 1);
                         const correctedSrc = `${baseDir}${replacement}.mp3`;
-                        console.log(`Correcting src pattern from ${pattern} to ${replacement}: ${correctedSrc}`);
+                        console.log(`Correcting src pattern from ${pattern}to ${replacement}: ${correctedSrc}`);
                         
                         // Save original src
                         track.originalSrc = track.src;
@@ -1012,7 +1042,7 @@ function setAudioSource(track) {
                                 break;
                             }
                         }
-                    } else if (isSimplified) {
+                    }else if (isSimplified) {
                         // Currently using simplified, try exact with spaces and parentheses
                         for (const [simplified, exact] of Object.entries(srcPatternMappings)) {
                             if (track.src.includes(simplified)) {
@@ -1020,7 +1050,7 @@ function setAudioSource(track) {
                                 break;
                             }
                         }
-                    } else if (track.title in exactFilenameMappings) {
+                    }else if (track.title in exactFilenameMappings) {
                         // Use known mapping from title
                         alternativeSrc = `${baseDir}${exactFilenameMappings[track.title]}`;
                     }
@@ -1039,13 +1069,13 @@ function setAudioSource(track) {
             }
             
             return true;
-        } else if (track.embeddedAudio) {
+        }else if (track.embeddedAudio) {
             // Use embedded audio as primary if no file path
             track.usingFallback = true;
             audio.src = track.embeddedAudio;
             console.log(`Using embedded audio for track "${track.title}" (no file path available)`);
             return true;
-        } else if (track.fallbackSrc) {
+        }else if (track.fallbackSrc) {
             // Use fallback src as last resort
             track.usingFallback = true;
             audio.src = track.fallbackSrc;
@@ -1055,7 +1085,7 @@ function setAudioSource(track) {
         
         console.error(`No valid audio source found for track: ${track.title}`);
         return false;
-    } catch (error) {
+    }catch (error) {
         console.error('Error setting audio source:', error);
         return false;
     }
@@ -1135,7 +1165,7 @@ function showFallbackIndicator(message = 'Using embedded audio') {
                 }, 1000);
             }
         }, 5000);
-    } else {
+    }else {
         // Update existing indicator
         const textElement = fallbackIndicator.querySelector('.fallback-text');
         if (textElement) {
@@ -1212,7 +1242,7 @@ function showFallbackIndicator(message = 'Using embedded audio') {
 
 /**
  * Find a suitable fallback track if the current one fails to load
- * @returns {number|null} - The index of a fallback track or null if none available
+ * @returns {number|null}- The index of a fallback track or null if none available
  */
 function findFallbackTrack() {
     // First try sample tracks with embedded audio
@@ -1247,7 +1277,7 @@ function playTrack() {
         return;
     }
     
-    console.log(`Attempting to play track: ${currentTrack.title} by ${currentTrack.artist}`);
+    console.log(`Attempting to play track: ${currentTrack.title}by ${currentTrack.artist}`);
     
     // Check if the audio is loaded
     if (audio.readyState === 0) {
@@ -1286,14 +1316,14 @@ function playTrack() {
                             showFallbackIndicator('Failed to play audio even with fallback');
                         });
                     }, 500);
-                } else {
+                }else {
                     // Try a different track
                     const fallbackTrack = findFallbackTrack();
                     if (fallbackTrack) {
                         console.log('Trying a different track as fallback');
                         loadTrack(fallbackTrack);
                         playTrack();
-                    } else {
+                    }else {
                         console.error('No fallback track available');
                         showFallbackIndicator('Unable to play any tracks. Check your audio files.');
                     }
@@ -1315,7 +1345,7 @@ function pauseTrack() {
 function togglePlayPause() {
     if (isPlaying) {
         pauseTrack();
-    } else {
+    }else {
         playTrack();
     }
 }
@@ -1348,7 +1378,7 @@ function playNext() {
         if (currentIndex === -1 || currentIndex === filteredTracks.length - 1) {
             // If track not in filtered tracks or last track, play first
             loadTrack(filteredTracks[0]);
-        } else {
+        }else {
             // Play next track
             loadTrack(filteredTracks[currentIndex + 1]);
         }
@@ -1357,7 +1387,7 @@ function playNext() {
         
         // Scroll to the track after a short delay to ensure the UI has updated
         setTimeout(scrollToCurrentTrack, 300);
-    } else {
+    }else {
         console.error('No tracks available to play');
     }
 }
@@ -1370,7 +1400,7 @@ function playPrevious() {
         if (currentIndex === -1 || currentIndex === 0) {
             // If track not in filtered tracks or first track, play last
             loadTrack(filteredTracks[filteredTracks.length - 1]);
-        } else {
+        }else {
             // Play previous track
             loadTrack(filteredTracks[currentIndex - 1]);
         }
@@ -1379,7 +1409,7 @@ function playPrevious() {
         
         // Scroll to the track after a short delay to ensure the UI has updated
         setTimeout(scrollToCurrentTrack, 300);
-    } else {
+    }else {
         console.error('No tracks available to play');
     }
 }
@@ -1455,7 +1485,7 @@ async function savePlaylist() {
     try {
         await storageService.saveData('playlist', playlist);
         console.log('Playlist saved to storage');
-    } catch (error) {
+    }catch (error) {
         console.error('Error saving playlist:', error);
     }
 }
@@ -1468,7 +1498,7 @@ async function loadPlaylist() {
             playlist = savedPlaylist;
             console.log('Loaded playlist from storage:', playlist.length, 'tracks');
         }
-    } catch (error) {
+    }catch (error) {
         console.error('Error loading playlist:', error);
     }
 }
@@ -1521,7 +1551,7 @@ function downloadPlaylist() {
     document.getElementById('download-list-btn').addEventListener('click', () => {
         // Proceed with download of the track list
         const playlistText = playlist.map((track, index) => 
-            `${index + 1}. ${track.title} - ${track.artist}`
+            `${index + 1}. ${track.title}- ${track.artist}`
         ).join('\n');
         
         const blob = new Blob([playlistText], { type: 'text/plain' });
@@ -1691,7 +1721,7 @@ function downloadTrack(track, filename) {
                 console.error('Error downloading blob track:', error);
                 showNotification('Failed to download track. Try accessing it from the file system.', 5000);
             });
-    } 
+    }
     else if (track.src.startsWith('data:')) {
         // For data URIs, we can download directly
         triggerDownload(track.src, filename);
@@ -1881,7 +1911,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Make sure filteredTracks is populated with all available tracks
     if (filteredTracks.length === 0 && tracksData.length > 0) {
         filteredTracks = [...tracksData];
-        console.log(`Populated filteredTracks with ${filteredTracks.length} tracks`);
+        console.log(`Populated filteredTracks with ${filteredTracks.length}tracks`);
     }
     
     // Initialize the player
@@ -1901,7 +1931,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Save the tracks to storage to ensure everything is in sync
     const trackCount = tracksData.length || 0;
-    console.log(`Player initialized with ${trackCount} tracks.`);
+    console.log(`Player initialized with ${trackCount}tracks.`);
     
     // Always save tracks to storage to ensure they'll be available next time
     if (trackCount > 0) {
@@ -1947,7 +1977,7 @@ function prevTrack() {
 
 /**
  * Load a track into the player by index or track object
- * @param {number|Object} trackOrIndex - The track index or track object to load
+ * @param {number|Object}trackOrIndex - The track index or track object to load
  */
 function loadTrack(trackOrIndex) {
     // Determine if we received a track index or a track object
@@ -1958,7 +1988,7 @@ function loadTrack(trackOrIndex) {
         // It's an index into tracksData
         trackIndex = trackOrIndex;
         track = tracksData[trackIndex];
-    } else {
+    }else {
         // It's a track object
         track = trackOrIndex;
         trackIndex = tracksData.findIndex(t => t.id === track.id);
@@ -1984,7 +2014,7 @@ function loadTrack(trackOrIndex) {
     // Update album art if available
     if (track.albumArt) {
         albumArt.src = track.albumArt;
-    } else {
+    }else {
         albumArt.src = 'assets/images/Tilde_Logo.png';
     }
     
@@ -2002,7 +2032,7 @@ function loadTrack(trackOrIndex) {
             audio.src = track.fallbackSrc;
             track.usingFallback = true;
             showFallbackIndicator(`Using embedded audio for "${track.title}"`);
-        } else {
+        }else {
             showNotification('Error: Could not load audio for this track', 'error');
         }
     }
@@ -2021,14 +2051,14 @@ function loadTrack(trackOrIndex) {
 
 /**
  * Update the play/pause button state
- * @param {boolean} isPlaying - Whether the audio is currently playing
+ * @param {boolean}isPlaying - Whether the audio is currently playing
  */
 function updatePlayPauseState(playing) {
     isPlaying = playing;
     
     if (playing) {
         playBtn.innerHTML = '<i class="fas fa-pause"></i>';
-    } else {
+    }else {
         playBtn.innerHTML = '<i class="fas fa-play"></i>';
     }
     
@@ -2118,7 +2148,7 @@ function renderTrackList() {
 
 /**
  * Render a specific list of tracks in the catalog
- * @param {Array} tracks - The tracks to render
+ * @param {Array}tracks - The tracks to render
  */
 function renderTracks(tracks) {
     if (!tracksContainer) {
@@ -2217,7 +2247,7 @@ function renderTracks(tracks) {
 
 /**
  * Seek to a position in the track
- * @param {Event} event - The input event from the progress slider
+ * @param {Event}event - The input event from the progress slider
  */
 function seekTrack(event) {
     if (!audio.duration) return;
@@ -2228,7 +2258,7 @@ function seekTrack(event) {
 
 /**
  * Set the volume level
- * @param {number} volume - Volume level between 0 and 1
+ * @param {number}volume - Volume level between 0 and 1
  */
 function setVolume(volume) {
     if (volume < 0) volume = 0;
@@ -2244,9 +2274,9 @@ function setVolume(volume) {
     if (volumeIcon) {
         if (volume === 0) {
             volumeIcon.className = 'fas fa-volume-mute';
-        } else if (volume < 0.5) {
+        }else if (volume < 0.5) {
             volumeIcon.className = 'fas fa-volume-down';
-        } else {
+        }else {
             volumeIcon.className = 'fas fa-volume-up';
         }
     }
@@ -2386,7 +2416,7 @@ function setupUploadLinkPasswordProtection() {
             // Super simple password check - in a real app, use proper authentication
             if (password === 'tilde') {
                 window.location.href = 'upload.html';
-            } else {
+            }else {
                 alert('Incorrect password');
             }
         });
@@ -2460,4 +2490,4 @@ function renderPlaylist() {
     
     // Set up drag and drop functionality
     setupDragAndDrop();
-} 
+}
