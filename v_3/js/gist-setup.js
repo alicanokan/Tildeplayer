@@ -17,8 +17,8 @@
         console.log('Initializing GitHub Gist setup UI...');
         
         // Check if we already have a Gist ID in local storage
-        const savedGistId = localStorage.getItem('gist-id') || null;
-        const savedGithubToken = localStorage.getItem('github-token') || null;
+        const savedGistId = localStorage.getItem('gist-id') || '';
+        const savedGithubToken = localStorage.getItem('github-token') || '';
         
         // Add a reference to the upload handler for force refresh integration
         let uploadHandler = null;
@@ -236,6 +236,10 @@
     
     // Function to create the setup UI
     function createSetupUI() {
+        // Get saved values from localStorage
+        const savedGistId = localStorage.getItem('gist-id') || '';
+        const savedGithubToken = localStorage.getItem('github-token') || '';
+        
         // Create toggle button
         const toggleButton = document.createElement('button');
         toggleButton.className = 'gist-setup-toggle';
@@ -259,7 +263,7 @@
                     type="text" 
                     id="gist-id-input" 
                     placeholder="e.g. f308c693f01b8cf73beabd0dca6655b8"
-                    value="${savedGistId || ''}"
+                    value="${savedGistId}"
                 >
                 <div class="gist-id-status ${savedGistId ? 'valid' : ''}">
                     ${savedGistId ? 'Gist ID configured' : 'No Gist ID configured'}
@@ -270,7 +274,7 @@
                     type="password" 
                     id="github-token-input" 
                     placeholder="github_pat_xxx..."
-                    value="${savedGithubToken || ''}"
+                    value="${savedGithubToken}"
                 >
                 <div class="token-status ${savedGithubToken ? 'valid' : ''}">
                     ${savedGithubToken ? 'Token configured' : 'Required for private Gists or to avoid rate limits'}

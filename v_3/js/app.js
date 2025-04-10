@@ -17,21 +17,10 @@ const api = {
     }
 };
 
-// Initial track list before loading any tracks
-let allTracks = [];
-
-// Track data loaded from JSON
+// Start with an empty tracks array - we'll fill it with real tracks before falling back to samples
 let tracksData = [];
 
-// A filtered subset of tracks based on user filters
-let filteredTracks = [];
-
-// Add this near the top of the file, before any other code that uses tracksData or filteredTracks
-// Global variables for tracks
-window.tracksData = window.tracksData || [];
-window.filteredTracks = window.filteredTracks || [...window.tracksData];
-
-// Initialize sample tracks
+// Sample tracks to use as a fallback if no tracks are found
 const sampleTracks = [
     {
         id: 1,
@@ -108,287 +97,205 @@ const sampleTracks = [
 // A very short audio file encoded as base64 data URI (for embedded audio)
 const embeddedAudioData = "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
 
-// Add new functions to manage the loading UI
-function showTrackLoadingUI(show = true) {
-    // Check if loading container exists, create it if not
-    let loadingContainer = document.getElementById('track-loading-container');
-    
-    if (!loadingContainer && show) {
-        // Create loading UI if it doesn't exist
-        loadingContainer = document.createElement('div');
-        loadingContainer.id = 'track-loading-container';
-        loadingContainer.className = 'loading-overlay';
-        loadingContainer.innerHTML = `
-            <div class="loading-content">
-                <h3 id="loading-status">Loading tracks...</h3>
-                <div class="progress-container">
-                    <div id="track-loading-progress" class="progress-bar"></div>
-                </div>
-                <p id="track-loading-details">Please wait...</p>
-            </div>
-        `;
-        document.body.appendChild(loadingContainer);
-        
-        // Add styles if they don't exist
-        if (!document.getElementById('loading-styles')) {
-            const style = document.createElement('style');
-            style.id = 'loading-styles';
-            style.textContent = `
-                .loading-overlay {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0, 0, 0, 0.7);
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    z-index: 9999;
-                }
-                .loading-content {
-                    background: white;
-                    padding: 20px;
-                    border-radius: 8px;
-                    text-align: center;
-                    max-width: 80%;
-                }
-                .progress-container {
-                    width: 100%;
-                    background: #eee;
-                    margin: 15px 0;
-                    height: 20px;
-                    border-radius: 10px;
-                    overflow: hidden;
-                }
-                .progress-bar {
-                    height: 100%;
-                    background: #4CAF50;
-                    width: 0%;
-                    transition: width 0.3s ease;
-                }
-                .loading-pulse {
-                    animation: pulse 1.5s infinite;
-                }
-                @keyframes pulse {
-                    0% { opacity: 1; }
-                    50% { opacity: 0.5; }
-                    100% { opacity: 1; }
-                }
-            `;
-            document.head.appendChild(style);
-        }
-    } else if (loadingContainer) {
-        loadingContainer.style.display = show ? 'flex' : 'none';
-    }
-}
-
-function updateTrackLoadingProgress(percent, status, details) {
-    const progressBar = document.getElementById('track-loading-progress');
-    const statusEl = document.getElementById('loading-status');
-    const detailsEl = document.getElementById('track-loading-details');
-    
-    if (progressBar) progressBar.style.width = `${percent}%`;
-    if (statusEl) statusEl.textContent = status || 'Loading...';
-    if (detailsEl) detailsEl.textContent = details || '';
-    
-    // Add pulse effect when loading
-    if (percent < 100 && statusEl) {
-        statusEl.classList.add('loading-pulse');
-    } else if (statusEl) {
-        statusEl.classList.remove('loading-pulse');
-    }
-}
-
 // Find the loadUploadedTracks function and update it
+function loadUploadedTracks() {
+    console.log("Starting track loading process...");
+    
+    // Step 1: Start by checking the assets directory for tracks
+    scanAssetsDirectoryForTracks()
+        .then(assetsTrackFiles => {
+            console.log(`Found ${assetsTrackFiles.length}track files in assets directory`);
+            
+            // Step 2: Try to load tracks from storage
+            return storageService.loadData('tracks')
+                .then(storedTracks => {
+                    console.log("Successfully loaded tracks from storage:", storedTracks ? storedTracks.length : 0);
+                    
+                    // Merge assets tracks with stored tracks (if any) and process them
+                    processAndUseDiscoveredTracks(assetsTrackFiles, storedTracks || []);
+                })
+                .catch(err => {
+                    console.warn("Failed to load tracks from storage service:", err);
+                    
+                    // Attempt to load from localStorage as a fallback
+                    const localTracksString = localStorage.getItem('tracks');
+                    if (localTracksString) {
+                        try {
+                            const localTracks = JSON.parse(localTracksString);
+                            console.log("Loaded tracks from localStorage:", localTracks.length);
+                            
+                            // Merge assets tracks with local tracks and process them
+                            processAndUseDiscoveredTracks(assetsTrackFiles, localTracks);
+                        }catch (parseErr) {
+                            console.error("Error parsing tracks from localStorage:", parseErr);
+                            processAndUseDiscoveredTracks(assetsTrackFiles, []);
+                        }
+                    }else {
+                        console.log("No tracks found in localStorage");
+                        processAndUseDiscoveredTracks(assetsTrackFiles, []);
+                    }
+                    
+                    // Try to sync from Gist if we're on GitHub Pages
+                    if (window.location.hostname.includes('github.io')) {
+                        storageService.loadFromGist()
+                            .then(gistData => {
+                                if (gistData && gistData.tracks && gistData.tracks.length) {
+                                    console.log("Successfully synced tracks from Gist");
+                                    // We'll reload the page to apply the synced tracks
+                                    showNotification("Tracks synced from cloud storage. Reloading...", "success");
+                                    setTimeout(() => window.location.reload(), 2000);
+                                }
+                            })
+                            .catch(err => console.warn("Failed to sync from Gist:", err));
+                    }
+                });
+        })
+        .catch(err => {
+            console.error("Error scanning assets directory:", err);
+            // If scanning fails, fall back to just loading from storage
+            loadTracksFromStorageOnly();
+        });
+}
+
+// Helper function to scan assets directory for track files
+function scanAssetsDirectoryForTracks() {
+// Modify loadUploadedTracks to use storage service and scan the assets/tracks directory
 async function loadUploadedTracks() {
-    console.log('Loading uploaded tracks...');
-    
-    // Show loading UI
-    showTrackLoadingUI(true);
-    updateTrackLoadingProgress(10, 'Initializing...', 'Setting up track loading process');
-    
-    // Ensure tracksData is defined globally
-    if (typeof window.tracksData === 'undefined') {
-        window.tracksData = [];
-        console.log('Created global tracksData array');
-    }
-    
-    // Clear existing tracks
-    window.tracksData.length = 0;
-    
-    // Try to load from storage first
+    console.log('Loading tracks from storage and directory...');
+    let tracksLoaded = false;
     let storageTracksFound = false;
     
+    // Create an array to hold all discovered tracks
+    let allTracks = [];
+    
     try {
-        if (window.storageService && typeof window.storageService.isAvailable === 'function' && window.storageService.isAvailable()) {
-            console.log('Storage service is available, attempting to load tracks...');
+        // First, scan the assets/tracks directory for all MP3 files
+        // This ensures all physically present files are always included
+        await scanAssetsDirectoryForTracks();
+        
+        // Then try loading from storage service
+        const storageTracks = await storageService.loadData('tracks');
+        if (storageTracks && Array.isArray(storageTracks) && storageTracks.length > 0) {
+            console.log('Loaded tracks from storage service:', storageTracks.length);
             
-            // Define safeStorageOperation locally if it doesn't exist in this scope
-            const localSafeStorageOperation = async (operation, fallbackValue) => {
-                try {
-                    const result = await operation();
-                    return result !== null && result !== undefined ? result : fallbackValue;
-                } catch (error) {
-                    console.error('Storage operation failed:', error);
-                    return fallbackValue;
-                }
-            };
+            // Merge with existing tracks, avoiding duplicates
+            storageTracksFound = true;
+            mergeTracksWithoutDuplicates(storageTracks);
+        }
+        
+        // If no tracks from storage service, try localStorage directly
+        if (!storageTracksFound) {
+            console.log('No tracks found in storage service, checking localStorage directly...');
             
-            const storageTracks = await localSafeStorageOperation(
-                async () => await window.storageService.loadData('tracks'),
-                []
-            );
-            
-            if (storageTracks && storageTracks.length > 0) {
-                console.log(`Loaded ${storageTracks.length} tracks from storage`);
-                window.tracksData = storageTracks;
-                storageTracksFound = true;
-            } else {
-                console.log('No tracks found in storage');
-            }
-            
-            // If no tracks found and running on GitHub, try to sync from Gist
-            if (!storageTracksFound && window.storageService && 
-                typeof window.storageService.isRunningOnGitHub === 'function' && 
-                window.storageService.isRunningOnGitHub()) {
-                console.log('Running on GitHub Pages with no local tracks, attempting to sync from Gist...');
-                
-                await localSafeStorageOperation(
-                    async () => await window.storageService.syncFromGistToLocal(),
-                    false
-                );
-                
-                // Try to load again after sync
-                const syncedTracks = await localSafeStorageOperation(
-                    async () => await window.storageService.loadData('tracks'),
-                    []
-                );
-                
-                if (syncedTracks && syncedTracks.length > 0) {
-                    console.log(`Loaded ${syncedTracks.length} tracks after syncing from Gist`);
-                    window.tracksData = syncedTracks;
-                    storageTracksFound = true;
-                }
-            }
-        } else {
-            console.log('Storage service not available or isAvailable method missing, trying local storage directly...');
-            
-            // Try loading directly from localStorage as fallback
             try {
-                const localTracks = localStorage.getItem('tracks');
-                if (localTracks) {
-                    const parsedTracks = JSON.parse(localTracks);
-                    const tracksArray = Array.isArray(parsedTracks) ? parsedTracks : 
-                                        (parsedTracks.tracks && Array.isArray(parsedTracks.tracks) ? parsedTracks.tracks : []);
-                    
-                    if (tracksArray.length > 0) {
-                        console.log(`Loaded ${tracksArray.length} tracks directly from localStorage`);
-                        window.tracksData = tracksArray;
-                        storageTracksFound = true;
-                    }
+                const localStorageTracks = JSON.parse(localStorage.getItem('tracks'));
+                if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
+                    console.log('Found tracks in localStorage:', localStorageTracks.length);
+                    storageTracksFound = true;
+                    mergeTracksWithoutDuplicates(localStorageTracks);
                 }
-            } catch (localError) {
-                console.error('Error loading tracks from localStorage:', localError);
+            }catch (localStorageError) {
+                console.error('Error parsing tracks from localStorage:', localStorageError);
+            }
+            
+            // If still no tracks, check if we're on GitHub Pages and need to sync from Gist
+            if (!storageTracksFound && window.storageService && window.storageService.isRunningOnGitHub()) {
+                console.log('Attempting to sync from Gist...');
+                try {
+                    await window.storageService.syncFromGistToLocal();
+                    
+                    // Try loading tracks again after sync
+                    const syncedTracks = await storageService.loadData('tracks');
+                    if (syncedTracks && Array.isArray(syncedTracks) && syncedTracks.length > 0) {
+                        console.log('Found tracks after Gist sync:', syncedTracks.length);
+                        storageTracksFound = true;
+                        mergeTracksWithoutDuplicates(syncedTracks);
+                    }
+                }catch (syncError) {
+                    console.error('Error syncing from Gist:', syncError);
+                }
             }
         }
-    } catch (error) {
-        console.error('Error loading tracks from storage:', error);
-        if (window.notificationService) {
-            window.notificationService.show(
-                'Storage Error', 
-                'Failed to load tracks from storage. Using default tracks.',
-                'warning',
-                5000
-            );
-        }
-    }
-    
-    // If no tracks found from any source, load from assets directory
-    if (!storageTracksFound || window.tracksData.length === 0) {
-        console.log('No tracks found from storage, attempting to scan assets directory...');
-        const assetTracks = await scanAssetsDirectoryForTracks();
-        if (assetTracks && assetTracks.length > 0) {
-            window.tracksData = assetTracks;
-            console.log(`Loaded ${assetTracks.length} tracks from assets directory`);
-        } else {
-            // If still no tracks, use sample tracks as absolute fallback
-            console.log('No tracks found from any source, using sample tracks...');
-            window.tracksData = [...sampleTracks];
-            if (window.notificationService) {
-                window.notificationService.show(
-                    'Using Sample Tracks', 
-                    'No tracks found from any source. Using sample tracks as fallback.',
-                    'info',
-                    5000
-                );
+        
+        // Process the final merged track list
+        processAndUseDiscoveredTracks();
+        
+    }catch (error) {
+        console.error('Error loading tracks:', error);
+        
+        // Try localStorage as fallback
+        try {
+            const localStorageTracks = JSON.parse(localStorage.getItem('tracks'));
+            if (localStorageTracks && Array.isArray(localStorageTracks) && localStorageTracks.length > 0) {
+                console.log('Using localStorage fallback for tracks:', localStorageTracks.length);
+                mergeTracksWithoutDuplicates(localStorageTracks);
+                processAndUseDiscoveredTracks();
+            }else {
+                // If still no tracks, use the sample tracks as a last resort
+                useSampleTracksAsFallback();
+            }
+        }catch (fallbackError) {
+            console.error('Fallback loading failed, using discovered directory tracks:', fallbackError);
+            if (allTracks.length > 0) {
+                processAndUseDiscoveredTracks();
+            }else {
+                useSampleTracksAsFallback();
             }
         }
     }
     
-    // Set up global filteredTracks variable if it doesn't exist
-    if (typeof window.filteredTracks === 'undefined') {
-        window.filteredTracks = [...window.tracksData];
-        console.log('Created global filteredTracks array');
-    } else {
-        window.filteredTracks.length = 0;
-        window.tracksData.forEach(track => window.filteredTracks.push(track));
-    }
-    
-    console.log(`Track loading complete. ${window.tracksData.length} tracks loaded.`);
-    
-    // Final update before hiding
-    updateTrackLoadingProgress(100, 'Complete!', `${window.tracksData.length} tracks loaded successfully`);
-    
-    // Give user time to see the completed progress
-    setTimeout(() => {
-        showTrackLoadingUI(false);
-    }, 1000);
-    
-    return window.tracksData;
-}
-
-// Update the scanAssetsDirectoryForTracks function to include progress updates
-async function scanAssetsDirectoryForTracks() {
-    console.log('Scanning assets/tracks directory for MP3 files...');
-    updateTrackLoadingProgress(25, 'Scanning audio files', 'Checking for track files...');
-    
-    // Start with an empty array (not sample tracks)
-    allTracks = []; 
-    
-    // Create a list of potential track filenames based on naming patterns we see in the directory
-    const potentialTracks = [];
-    
-    // Add tracks for ID Music 1-16 based on the pattern seen in the assets directory
-    for (let i = 1; i <= 16; i++) {
-        potentialTracks.push({
-            id: 100 + i, // Use IDs starting at 101 to avoid conflicts
-            title: `ID Music ${i}`,
-            artist: "TildeSoundArt",
-            // We'll use the discovered filename patterns
-            src: `assets/tracks/ID Music ${i}- (NEED_SCAN).mp3`,
-            albumArt: "assets/images/Tilde_Logo.png",
-            mood: ["energetic", "intense"],
-            genre: ["electronic"],
-            duration: "medium",
-            needsFileDiscovery: true,
-            index: i
-        });
-    }
-    
-    try {
-        // Load known files from localStorage or JSON file
-        updateTrackLoadingProgress(30, 'Loading known files', 'Checking for known audio files...');
-        const knownFiles = await loadKnownFiles();
+    // Function to scan assets/tracks directory for MP3 files and create track objects
+    async function scanAssetsDirectoryForTracks() {
+        console.log('Scanning assets/tracks directory for MP3 files...');
+        
+        // In a browser context, we can't directly read the file system
+        // Instead, we'll try to discover tracks by checking known file patterns
+        
+        // Start with an empty array (not sample tracks)
+        allTracks = []; 
+        
+        // Create a list of potential track filenames based on naming patterns we see in the directory
+        const potentialTracks = [];
+        
+        // Add tracks for ID Music 1-16 based on the pattern seen in the assets directory
+        for (let i = 1; i <= 16; i++) {
+            potentialTracks.push({
+                id: 100 + i, // Use IDs starting at 101 to avoid conflicts
+                title: `ID Music ${i}`,
+                artist: "TildeSoundArt",
+                // We'll use the discovered filename patterns
+                src: `assets/tracks/ID Music ${i}- (NEED_SCAN).mp3`,
+                albumArt: "assets/images/Tilde_Logo.png",
+                mood: ["energetic", "intense"],
+                genre: ["electronic"],
+                duration: "medium",
+                needsFileDiscovery: true,
+                index: i
+            });
+        }
+        
+        // Real track filenames based on files observed in the directory
+        const knownFiles = [
+            { index: 1, filename: "ID Music 1 - (TOGG_ID MEDIA _padfuturebass 2).mp3" },
+            { index: 2, filename: "ID Music 2 - (17c-Technology_F1).mp3" },
+            { index: 3, filename: "ID Music 3 - (14. TOGG_ID MEDIA _Piano3).mp3" },
+            { index: 4, filename: "ID Music 4 - (9c-Lofi_F1).mp3" },
+            { index: 5, filename: "ID Music 5 - (16c-StompRock_F1).mp3" },
+            { index: 6, filename: "ID Music 6 - (ID_SYNTHPOP_60) 1.mp3" },
+            { index: 7, filename: "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3" },
+            { index: 8, filename: "ID Music 8 - (1c-Corporate_F1).mp3" },
+            { index: 9, filename: "ID Music 9 - (5c-Optimistic_F1).mp3" },
+            { index: 10, filename: "ID Music 10 - (ID_FUTURISTIC_SPACEY) 1.mp3" },
+            { index: 11, filename: "ID Music 11 - (10c-Logo Synth_Ney_F1).mp3" },
+            { index: 12, filename: "ID Music 12 - (2c-Future Bass_F1).mp3" },
+            { index: 13, filename: "ID Music 13 - (Rock1).mp3" },
+            { index: 14, filename: "ID Music 14 - (Synthwave_1).mp3" },
+            { index: 15, filename: "ID Music 15 - (Corp.Hiphop1).mp3" },
+            { index: 16, filename: "ID Music 16 - (Corp.Hiphop2).mp3" }
+        ];
         
         // Create proper track entries for all known files
-        knownFiles.forEach((file, index) => {
-            // Show progress in batches to avoid too many updates
-            if (index % 5 === 0) {
-                const percent = 30 + Math.min(15, Math.floor((index / knownFiles.length) * 15));
-                updateTrackLoadingProgress(percent, 'Processing known files', `Processing file ${index+1}/${knownFiles.length}: ${file.filename}`);
-            }
-            
+        knownFiles.forEach(file => {
             // Find any matching potential track
             const matchingTrack = potentialTracks.find(track => track.index === file.index);
             if (matchingTrack) {
@@ -411,283 +318,263 @@ async function scanAssetsDirectoryForTracks() {
             }
         });
         
-        console.log(`Found ${allTracks.length} tracks in the assets directory`);
-        updateTrackLoadingProgress(45, 'Tracks discovered', `Found ${allTracks.length} tracks in assets directory`);
+        console.log(`Found ${allTracks.length}tracks in the assets directory`);
         
         // Test each track by trying to load it
-        for (let i = 0; i < allTracks.length; i++) {
-            if (i % 3 === 0) { // Update progress every 3 tracks
-                const percent = 45 + Math.min(10, Math.floor((i / allTracks.length) * 10));
-                updateTrackLoadingProgress(percent, 'Testing audio files', `Testing track ${i+1}/${allTracks.length}: ${allTracks[i].title}`);
+        for (const track of allTracks) {
+            await testTrackExists(track);
+        }
+    }
+    
+    // Function to test if a track file actually exists
+    async function testTrackExists(track) {
+        if (!track.src) return;
+        
+        return new Promise(resolve => {
+            const audio = new Audio();
+            
+            // Set a short timeout to avoid hanging if the file doesn't exist
+            const timeout = setTimeout(() => {
+                console.log(`Track file not found: ${track.src}`);
+                track.fileExists = false;
+                resolve(false);
+            }, 500);
+            
+            audio.oncanplaythrough = () => {
+                clearTimeout(timeout);
+                console.log(`Track file exists: ${track.src}`);
+                track.fileExists = true;
+                resolve(true);
+            };
+            
+            audio.onerror = () => {
+                clearTimeout(timeout);
+                console.log(`Track file load error: ${track.src}`);
+                track.fileExists = false;
+                resolve(false);
+            };
+            
+            // Try to load the audio file
+            try {
+                audio.src = track.src;
+                audio.load();
+            }catch (e) {
+                clearTimeout(timeout);
+                console.error(`Error testing track: ${e}`);
+                track.fileExists = false;
+                resolve(false);
             }
-            await testTrackExists(allTracks[i]);
-        }
-    } catch (error) {
-        console.error('Error loading known files:', error);
-        updateTrackLoadingProgress(55, 'Error in track discovery', `Error: ${error.message}`);
-        return [];
+        });
     }
-}
-
-// Function to test if a track file actually exists
-async function testTrackExists(track) {
-    if (!track.src) return;
     
-    return new Promise(resolve => {
-        const audio = new Audio();
+    // Function to use sample tracks as a last resort
+    function useSampleTracksAsFallback() {
+        console.log('No tracks found from any source, using sample tracks as fallback');
         
-        // Set a short timeout to avoid hanging if the file doesn't exist
-        const timeout = setTimeout(() => {
-            console.log(`Track file not found: ${track.src}`);
-            track.fileExists = false;
-            resolve(false);
-        }, 500);
+        // Use sample tracks
+        allTracks = [...sampleTracks];
         
-        audio.oncanplaythrough = () => {
-            clearTimeout(timeout);
-            console.log(`Track file exists: ${track.src}`);
-            track.fileExists = true;
-            resolve(true);
+        // Also update tracksData directly
+        tracksData = [...sampleTracks];
+        
+        showNotification('Using sample tracks as fallback', 'info');
+    }
+    
+    // Extract a user-friendly title from the filename
+    function getTrackTitle(filename) {
+        // Extract the part in parentheses
+        const matches = filename.match(/\(([^)]+)\)/);
+        if (matches && matches[1]) {
+            return matches[1].replace(/_/g, ' ').trim();
+        }
+        return filename.split(' - ')[1] || filename;
+    }
+    
+    // Assign mood and genre based on filename patterns
+    function assignMoodAndGenreFromFilename(filename) {
+        const lowerFilename = filename.toLowerCase();
+        const result = { 
+            mood: ["energetic"],
+            genre: ["electronic"],
+            duration: "medium" 
         };
         
-        audio.onerror = () => {
-            clearTimeout(timeout);
-            console.log(`Track file load error: ${track.src}`);
-            track.fileExists = false;
-            resolve(false);
-        };
-        
-        // Try to load the audio file
-        try {
-            audio.src = track.src;
-            audio.load();
-        }catch (e) {
-            clearTimeout(timeout);
-            console.error(`Error testing track: ${e}`);
-            track.fileExists = false;
-            resolve(false);
-        }
-    });
-}
-
-// Function to use sample tracks as a last resort
-function useSampleTracksAsFallback() {
-    console.log('No tracks found from any source, using sample tracks as fallback');
-    
-    // Use sample tracks
-    allTracks = [...sampleTracks];
-    
-    // Also update tracksData directly
-    tracksData = [...sampleTracks];
-    
-    showNotification('Using sample tracks as fallback', 'info');
-}
-
-// Extract a user-friendly title from the filename
-function getTrackTitle(filename) {
-    // Extract the part in parentheses
-    const matches = filename.match(/\(([^)]+)\)/);
-    if (matches && matches[1]) {
-        return matches[1].replace(/_/g, ' ').trim();
-    }
-    return filename.split(' - ')[1] || filename;
-}
-
-// Assign mood and genre based on filename patterns
-function assignMoodAndGenreFromFilename(filename) {
-    const lowerFilename = filename.toLowerCase();
-    const result = { 
-        mood: ["energetic"],
-        genre: ["electronic"],
-        duration: "medium" 
-    };
-    
-    // Detect mood
-    if (lowerFilename.includes('chill') || lowerFilename.includes('lofi')) {
-        result.mood = ["chill", "relaxed"];
-    }else if (lowerFilename.includes('rock')) {
-        result.mood = ["energetic", "intense"];
-        result.genre = ["rock"];
-    }else if (lowerFilename.includes('optimistic')) {
-        result.mood = ["happy", "energetic"];
-    }else if (lowerFilename.includes('funk')) {
-        result.mood = ["energetic", "happy"];
-        result.genre = ["funk"];
-    }else if (lowerFilename.includes('piano')) {
-        result.mood = ["chill", "focus"];
-        result.genre = ["classical"];
-    }else if (lowerFilename.includes('corporate')) {
-        result.mood = ["focus", "energetic"];
-        result.genre = ["electronic"];
-    }else if (lowerFilename.includes('future') || lowerFilename.includes('futuristic')) {
-        result.mood = ["focus", "energetic"];
-        result.genre = ["electronic"];
-    }else if (lowerFilename.includes('synthwave') || lowerFilename.includes('synthpop')) {
-        result.mood = ["intense", "energetic"];
-        result.genre = ["electronic"];
-    }else if (lowerFilename.includes('hiphop')) {
-        result.mood = ["energetic"];
-        result.genre = ["hiphop"];
-    }
-    
-    // Estimate duration based on typical song lengths
-    result.duration = "medium"; // Default to 30 sec
-    
-    return result;
-}
-
-// Merge tracks without creating duplicates
-function mergeTracksWithoutDuplicates(newTracks) {
-    if (!newTracks || !Array.isArray(newTracks)) return;
-    
-    newTracks.forEach(newTrack => {
-        // Check if this track already exists in our list
-        const exists = allTracks.some(track => 
-            track.id === newTrack.id || 
-            (track.title === newTrack.title && track.artist === newTrack.artist)
-        );
-        
-        if (!exists) {
-            allTracks.push(newTrack);
-        }
-    });
-}
-
-// Process all tracks we've discovered and use them
-function processAndUseDiscoveredTracks() {
-    if (allTracks.length === 0) {
-        console.log('No tracks discovered, using sample tracks as fallback');
-        useSampleTracksAsFallback();
-        return;
-    }
-    
-    // Clean up any problematic src paths
-    allTracks = cleanupTrackSrcPaths(allTracks);
-    
-    // Validate each track
-    const validatedTracks = allTracks.filter(track => {
-        const isValid = track && 
-                       typeof track === 'object' && 
-                       track.id && 
-                       track.title && 
-                       track.artist;
-        
-        if (!isValid) {
-            console.error('Invalid track found:', track);
+        // Detect mood
+        if (lowerFilename.includes('chill') || lowerFilename.includes('lofi')) {
+            result.mood = ["chill", "relaxed"];
+        }else if (lowerFilename.includes('rock')) {
+            result.mood = ["energetic", "intense"];
+            result.genre = ["rock"];
+        }else if (lowerFilename.includes('optimistic')) {
+            result.mood = ["happy", "energetic"];
+        }else if (lowerFilename.includes('funk')) {
+            result.mood = ["energetic", "happy"];
+            result.genre = ["funk"];
+        }else if (lowerFilename.includes('piano')) {
+            result.mood = ["chill", "focus"];
+            result.genre = ["classical"];
+        }else if (lowerFilename.includes('corporate')) {
+            result.mood = ["focus", "energetic"];
+            result.genre = ["electronic"];
+        }else if (lowerFilename.includes('future') || lowerFilename.includes('futuristic')) {
+            result.mood = ["focus", "energetic"];
+            result.genre = ["electronic"];
+        }else if (lowerFilename.includes('synthwave') || lowerFilename.includes('synthpop')) {
+            result.mood = ["intense", "energetic"];
+            result.genre = ["electronic"];
+        }else if (lowerFilename.includes('hiphop')) {
+            result.mood = ["energetic"];
+            result.genre = ["hiphop"];
         }
         
-        return isValid;
-    });
+        // Estimate duration based on typical song lengths
+        result.duration = "medium"; // Default to 30 sec
+        
+        return result;
+    }
     
-    if (validatedTracks.length > 0) {
-        tracksData = validatedTracks;
-        console.log('Successfully loaded', validatedTracks.length, 'valid tracks');
+    // Merge tracks without creating duplicates
+    function mergeTracksWithoutDuplicates(newTracks) {
+        if (!newTracks || !Array.isArray(newTracks)) return;
         
-        // Save these tracks back to storage to ensure consistency
-        storageService.saveData('tracks', validatedTracks);
+        newTracks.forEach(newTrack => {
+            // Check if this track already exists in our list
+            const exists = allTracks.some(track => 
+                track.id === newTrack.id || 
+                (track.title === newTrack.title && track.artist === newTrack.artist)
+            );
+            
+            if (!exists) {
+                allTracks.push(newTrack);
+            }
+        });
+    }
+    
+    // Process all tracks we've discovered and use them
+    function processAndUseDiscoveredTracks() {
+        if (allTracks.length === 0) {
+            console.log('No tracks discovered, using sample tracks as fallback');
+            useSampleTracksAsFallback();
+            return;
+        }
         
-        // Also save as approvedTracks to ensure they're visible in the upload page
-        storageService.saveData('approvedTracks', validatedTracks);
+        // Clean up any problematic src paths
+        allTracks = cleanupTrackSrcPaths(allTracks);
         
-        // Show notification about the loaded tracks
-        const newTrackCount = validatedTracks.length - tracksData.length;
-        if (newTrackCount > 0) {
-            showNotification(`Loaded ${validatedTracks.length}tracks (${newTrackCount} new)`);
+        // Validate each track
+        const validatedTracks = allTracks.filter(track => {
+            const isValid = track && 
+                           typeof track === 'object' && 
+                           track.id && 
+                           track.title && 
+                           track.artist;
+            
+            if (!isValid) {
+                console.error('Invalid track found:', track);
+            }
+            
+            return isValid;
+        });
+        
+        if (validatedTracks.length > 0) {
+            tracksData = validatedTracks;
+            console.log('Successfully loaded', validatedTracks.length, 'valid tracks');
+            
+            // Save these tracks back to storage to ensure consistency
+            storageService.saveData('tracks', validatedTracks);
+            
+            // Also save as approvedTracks to ensure they're visible in the upload page
+            storageService.saveData('approvedTracks', validatedTracks);
+            
+            // Show notification about the loaded tracks
+            const newTrackCount = validatedTracks.length - tracksData.length;
+            if (newTrackCount > 0) {
+                showNotification(`Loaded ${validatedTracks.length}tracks (${newTrackCount} new)`);
+            }else {
+                showNotification(`Loaded ${validatedTracks.length}tracks from all sources`);
+            }
         }else {
-            showNotification(`Loaded ${validatedTracks.length}tracks from all sources`);
+            console.error('No valid tracks found in loaded data');
+            useSampleTracksAsFallback();
         }
-    }else {
-        console.error('No valid tracks found in loaded data');
-        useSampleTracksAsFallback();
     }
-}
-
-// Function to clean up track src paths with problematic formats
-function cleanupTrackSrcPaths(tracks) {
-    if (!tracks || !Array.isArray(tracks)) return tracks;
     
-    // Create a mapping of known tracks with their exact filenames
-    const exactFilenameMappings = {
-        "ID Music 2 - Technology F1": "ID Music 2 - (17c-Technology_F1).mp3",
-        "ID Music 7 - TOGG ID MEDIA Funk": "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3"
-    };
-    
-    return tracks.map(track => {
-        // Clone the track to avoid modifying the original
-        const cleanTrack = {...track};
+    // Function to clean up track src paths with problematic formats
+    function cleanupTrackSrcPaths(tracks) {
+        if (!tracks || !Array.isArray(tracks)) return tracks;
         
-        // Special case for tracks with known exact filenames
-        if (exactFilenameMappings[track.title]) {
-            console.log(`Special handling for track: "${track.title}"`);
-            const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
-            cleanTrack.src = `${baseDir}${exactFilenameMappings[track.title]}`;
-            console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+        // Create a mapping of known tracks with their exact filenames
+        const exactFilenameMappings = {
+            "ID Music 2 - Technology F1": "ID Music 2 - (17c-Technology_F1).mp3",
+            "ID Music 7 - TOGG ID MEDIA Funk": "ID Music 7 - (TOGG_ID MEDIA _Funk).mp3"
+        };
+        
+        return tracks.map(track => {
+            // Clone the track to avoid modifying the original
+            const cleanTrack = {...track};
+            
+            // Special case for tracks with known exact filenames
+            if (exactFilenameMappings[track.title]) {
+                console.log(`Special handling for track: "${track.title}"`);
+                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+                cleanTrack.src = `${baseDir}${exactFilenameMappings[track.title]}`;
+                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+                return cleanTrack;
+            }
+            
+            // Special case for the ID Music 2 track - always use the original filename with spaces and parentheses
+            if (cleanTrack.title === "ID Music 2 - Technology F1" || 
+                (cleanTrack.src && cleanTrack.src.includes("ID_Music_2_17cTechnology_F1"))) {
+                
+                console.log(`Special handling for ID Music 2 track`);
+                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+                cleanTrack.src = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
+                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+                return cleanTrack;
+            }
+            
+            // Special case for ID Music 7 track
+            if (cleanTrack.title === "ID Music 7 - TOGG ID MEDIA Funk" || 
+                (cleanTrack.src && cleanTrack.src.includes("ID_Music_7_TOGG_ID_MEDIA__Funk"))) {
+                
+                console.log(`Special handling for ID Music 7 track`);
+                const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
+                cleanTrack.src = `${baseDir}ID Music 7 - (TOGG_ID MEDIA _Funk).mp3`;
+                console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
+                return cleanTrack;
+            }
+            
+            // Check if the src has the problematic pattern
+            if (cleanTrack.src && cleanTrack.src.includes('_Unknown_Artist_')) {
+                console.log(`Cleaning up problematic track src: ${cleanTrack.src}`);
+                
+                // Extract the base name and directory
+                const srcParts = cleanTrack.src.split('/');
+                const fileName = srcParts[srcParts.length - 1];
+                
+                // Get the base directory (everything before the filename)
+                const baseDir = srcParts.slice(0, -1).join('/');
+                
+                // Get the title part before _Unknown_Artist_
+                const titlePart = fileName.split('_Unknown_Artist_')[0];
+                
+                // Create clean src path
+                cleanTrack.src = `${baseDir}/${titlePart}.mp3`;
+                console.log(`Updated track src to: ${cleanTrack.src}`);
+            }
+            
             return cleanTrack;
-        }
-        
-        // Special case for the ID Music 2 track - always use the original filename with spaces and parentheses
-        if (cleanTrack.title === "ID Music 2 - Technology F1" || 
-            (cleanTrack.src && cleanTrack.src.includes("ID_Music_2_17cTechnology_F1"))) {
-            
-            console.log(`Special handling for ID Music 2 track`);
-            const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
-            cleanTrack.src = `${baseDir}ID Music 2 - (17c-Technology_F1).mp3`;
-            console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
-            return cleanTrack;
-        }
-        
-        // Special case for ID Music 7 track
-        if (cleanTrack.title === "ID Music 7 - TOGG ID MEDIA Funk" || 
-            (cleanTrack.src && cleanTrack.src.includes("ID_Music_7_TOGG_ID_MEDIA__Funk"))) {
-            
-            console.log(`Special handling for ID Music 7 track`);
-            const baseDir = cleanTrack.src ? cleanTrack.src.substring(0, cleanTrack.src.lastIndexOf('/') + 1) : 'assets/tracks/';
-            cleanTrack.src = `${baseDir}ID Music 7 - (TOGG_ID MEDIA _Funk).mp3`;
-            console.log(`Updated track src to exact original filename: ${cleanTrack.src}`);
-            return cleanTrack;
-        }
-        
-        // Check if the src has the problematic pattern
-        if (cleanTrack.src && cleanTrack.src.includes('_Unknown_Artist_')) {
-            console.log(`Cleaning up problematic track src: ${cleanTrack.src}`);
-            
-            // Extract the base name and directory
-            const srcParts = cleanTrack.src.split('/');
-            const fileName = srcParts[srcParts.length - 1];
-            
-            // Get the base directory (everything before the filename)
-            const baseDir = srcParts.slice(0, -1).join('/');
-            
-            // Get the title part before _Unknown_Artist_
-            const titlePart = fileName.split('_Unknown_Artist_')[0];
-            
-            // Create clean src path
-            cleanTrack.src = `${baseDir}/${titlePart}.mp3`;
-            console.log(`Updated track src to: ${cleanTrack.src}`);
-        }
-        
-        return cleanTrack;
-    });
+        });
+    }
 }
 
 // Add function to save tracks
 async function saveTracksData() {
     try {
-        // Use the storage service saveApprovedTracks method instead
-        // This ensures tracks are saved to both tracks and approvedTracks collections
-        await storageService.saveApprovedTracks(tracksData);
-        console.log('Tracks saved successfully to both collections');
+        await storageService.saveData('tracks', tracksData);
+        console.log('Tracks saved successfully');
     }catch (error) {
         console.error('Error saving tracks:', error);
-        
-        // Fallback to direct localStorage save
-        try {
-            localStorage.setItem('tracks', JSON.stringify(tracksData));
-            localStorage.setItem('approvedTracks', JSON.stringify(tracksData));
-            console.log('Tracks saved to localStorage as fallback');
-        } catch (localStorageError) {
-            console.error('Failed to save tracks to any storage:', localStorageError);
-        }
     }
 }
 
@@ -725,8 +612,7 @@ let currentTrack = null;
 let currentTrackIndex = 0;
 let isPlaying = false;
 let playlist = [];
-// Will be populated in initPlayer - reusing the variable declared at line 27
-filteredTracks = []; 
+let filteredTracks = []; // Will be populated in initPlayer
 
 // Initialize player with embedded audio only when needed as fallback
 function initializeWithEmbeddedAudio() {
@@ -1457,58 +1343,10 @@ function pauseTrack() {
 
 // Toggle play/pause
 function togglePlayPause() {
-    console.log('Toggling play/pause state. Current state:', isPlaying);
-    
     if (isPlaying) {
         pauseTrack();
-    } else {
+    }else {
         playTrack();
-    }
-    
-    // Update all play/pause buttons in the UI
-    updatePlayPauseState(isPlaying);
-}
-
-// Update play/pause button state across all UI elements
-function updatePlayPauseState(playing) {
-    isPlaying = playing;
-    
-    // Update main player button
-    const playBtn = document.getElementById('play-btn');
-    if (playBtn) {
-        playBtn.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
-    }
-    
-    // Update mini player button
-    const playPauseBtn = document.querySelector('.play-pause-btn');
-    if (playPauseBtn) {
-        playPauseBtn.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
-    }
-    
-    // Update any other play/pause buttons in the UI
-    const otherPlayPauseBtn = document.getElementById('play-pause-btn');
-    if (otherPlayPauseBtn) {
-        otherPlayPauseBtn.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
-    }
-    
-    // Update the currently playing track's play button
-    if (currentTrack) {
-        const trackItems = document.querySelectorAll('.track-item');
-        trackItems.forEach(item => {
-            if (item.dataset.trackId === currentTrack.id.toString()) {
-                const playButton = item.querySelector('.play-track-btn');
-                if (playButton) {
-                    playButton.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
-                }
-                item.classList.add('now-playing');
-            } else {
-                item.classList.remove('now-playing');
-                const playButton = item.querySelector('.play-track-btn');
-                if (playButton) {
-                    playButton.innerHTML = '<i class="fas fa-play"></i>';
-                }
-            }
-        });
     }
 }
 
@@ -1921,8 +1759,6 @@ function toggleFilterButton(button, filterType) {
 
 // Apply filters to tracks
 function applyFilters() {
-    console.log('Applying filters...');
-    
     const activeMoodFilters = Array.from(document.querySelectorAll('.mood-btn.active'))
         .map(btn => btn.dataset.mood);
     
@@ -1932,56 +1768,22 @@ function applyFilters() {
     const activeDurationFilters = Array.from(document.querySelectorAll('.duration-btn.active'))
         .map(btn => btn.dataset.duration);
     
-    console.log('Active filters:', {
-        mood: activeMoodFilters,
-        genre: activeGenreFilters,
-        duration: activeDurationFilters
-    });
-    
     filteredTracks = tracksData.filter(track => {
-        // Ensure mood and genre are arrays
-        const trackMoods = Array.isArray(track.mood) ? track.mood : 
-                          (track.mood ? [track.mood] : []);
-        
-        const trackGenres = Array.isArray(track.genre) ? track.genre : 
-                           (track.genre ? [track.genre] : []);
-        
-        // For tags, check if they contain any of the mood or genre keywords
-        if (track.tags && Array.isArray(track.tags)) {
-            track.tags.forEach(tag => {
-                // Check if this tag matches any mood
-                activeMoodFilters.forEach(mood => {
-                    if (tag.toLowerCase().includes(mood.toLowerCase())) {
-                        trackMoods.push(mood);
-                    }
-                });
-                
-                // Check if this tag matches any genre
-                activeGenreFilters.forEach(genre => {
-                    if (tag.toLowerCase().includes(genre.toLowerCase())) {
-                        trackGenres.push(genre);
-                    }
-                });
-            });
-        }
-        
         // If no mood filters selected, pass mood check
         const passMoodFilter = activeMoodFilters.length === 0 || 
-            trackMoods.some(mood => activeMoodFilters.includes(mood));
+            track.mood.some(mood => activeMoodFilters.includes(mood));
         
         // If no genre filters selected, pass genre check
         const passGenreFilter = activeGenreFilters.length === 0 || 
-            trackGenres.some(genre => activeGenreFilters.includes(genre));
+            track.genre.some(genre => activeGenreFilters.includes(genre));
         
         // If no duration filters selected, pass duration check
-        const trackDuration = track.duration || 'medium';
         const passDurationFilter = activeDurationFilters.length === 0 || 
-            activeDurationFilters.includes(trackDuration);
+            activeDurationFilters.includes(track.duration);
         
         return passMoodFilter && passGenreFilter && passDurationFilter;
     });
     
-    console.log(`Filtered tracks: ${filteredTracks.length} of ${tracksData.length}`);
     renderTracks(filteredTracks);
     
     // Update current track indicator after rendering tracks
@@ -2103,25 +1905,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         alert('Error: Some UI elements are missing. The player may not work correctly.');
     }
     
-    // Ensure the storage service is properly initialized
-    if (window.storageService) {
-        console.log('Storage service found, synchronizing track collections...');
-        try {
-            await window.storageService.syncTrackCollections();
-        } catch (error) {
-            console.error('Error synchronizing track collections:', error);
-        }
-    } else {
-        console.warn('Storage service not found, track synchronization may not work properly');
-    }
-    
     // First try to load tracks from storage and directory
     await loadUploadedTracks();
     
     // Make sure filteredTracks is populated with all available tracks
     if (filteredTracks.length === 0 && tracksData.length > 0) {
         filteredTracks = [...tracksData];
-        console.log(`Populated filteredTracks with ${filteredTracks.length} tracks`);
+        console.log(`Populated filteredTracks with ${filteredTracks.length}tracks`);
     }
     
     // Initialize the player
@@ -2141,18 +1931,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Save the tracks to storage to ensure everything is in sync
     const trackCount = tracksData.length || 0;
-    console.log(`Player initialized with ${trackCount} tracks.`);
+    console.log(`Player initialized with ${trackCount}tracks.`);
     
     // Always save tracks to storage to ensure they'll be available next time
     if (trackCount > 0) {
         console.log('Saving tracks to storage for future use');
         await saveTracksData();
         
-        // Also synchronize with approvedTracks to ensure they appear in the upload page
-        await storageService.saveApprovedTracks(tracksData);
-        
-        // Final sync to ensure everything is consistent
-        await storageService.syncTrackCollections();
+        // Also save as approvedTracks to ensure they appear in the upload page
+        await storageService.saveData('approvedTracks', tracksData);
     }
     
     console.log('Initialization complete. Try clicking on UI elements now.');
@@ -2263,171 +2050,342 @@ function loadTrack(trackOrIndex) {
 }
 
 /**
+ * Update the play/pause button state
+ * @param {boolean}isPlaying - Whether the audio is currently playing
+ */
+function updatePlayPauseState(playing) {
+    isPlaying = playing;
+    
+    if (playing) {
+        playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    }else {
+        playBtn.innerHTML = '<i class="fas fa-play"></i>';
+    }
+    
+    // Update the visual indicator for the current track
+    updateCurrentTrackIndicator();
+}
+
+// Add this function near the other rendering functions
+/**
+ * Render the list of tracks in the track catalog
+ */
+function renderTrackList() {
+    if (!tracksContainer) {
+        console.error('Track container not found');
+        return;
+    }
+    
+    console.log('Rendering track list with', tracksData.length, 'tracks');
+    
+    // Clear any existing tracks
+    tracksContainer.innerHTML = '';
+    
+    // Set filteredTracks to all tracks initially if it's empty
+    if (filteredTracks.length === 0) {
+        filteredTracks = [...tracksData];
+    }
+    
+    // Render each track
+    filteredTracks.forEach(track => {
+        const trackItem = document.createElement('div');
+        trackItem.className = 'track-item';
+        trackItem.dataset.trackId = track.id;
+        
+        // Create mood and genre tags HTML
+        let moodTags = '';
+        if (track.mood && track.mood.length > 0) {
+            moodTags = track.mood.map(mood => 
+                `<span class="tag mood">${mood}</span>`
+            ).join('');
+        }
+        
+        let genreTags = '';
+        if (track.genre && track.genre.length > 0) {
+            genreTags = track.genre.map(genre => 
+                `<span class="tag genre">${genre}</span>`
+            ).join('');
+        }
+        
+        // Set the track item HTML
+        trackItem.innerHTML = `
+            <div class="track-info">
+                <h4>${track.title}</h4>
+                <p>${track.artist}</p>
+                <div class="track-tags">
+                    ${moodTags}
+                    ${genreTags}
+                    ${track.duration ? `<span class="tag duration">${track.duration}</span>` : ''}
+                </div>
+            </div>
+            <div class="track-actions">
+                <button class="play-track-btn"><i class="fas fa-play"></i></button>
+                <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
+            </div>
+        `;
+        
+        // Add event listeners
+        const playButton = trackItem.querySelector('.play-track-btn');
+        playButton.addEventListener('click', () => {
+            loadTrack(track);
+            playTrack();
+        });
+        
+        const addToPlaylistButton = trackItem.querySelector('.add-to-playlist-btn');
+        addToPlaylistButton.addEventListener('click', () => {
+            addToPlaylist(track);
+        });
+        
+        // Add the track item to the container
+        tracksContainer.appendChild(trackItem);
+    });
+    
+    // Update current track indicator
+    if (currentTrack) {
+        updateCurrentTrackIndicator();
+    }
+}
+
+/**
+ * Render a specific list of tracks in the catalog
+ * @param {Array}tracks - The tracks to render
+ */
+function renderTracks(tracks) {
+    if (!tracksContainer) {
+        console.error('Track container not found');
+        return;
+    }
+    
+    console.log('Rendering filtered track list with', tracks.length, 'tracks');
+    
+    // Clear any existing tracks
+    tracksContainer.innerHTML = '';
+    
+    if (tracks.length === 0) {
+        // Show a message if no tracks match the filters
+        tracksContainer.innerHTML = `
+            <div class="no-tracks-message">
+                <p>No tracks match your filter criteria.</p>
+                <button id="reset-filters-btn">Reset Filters</button>
+            </div>
+        `;
+        
+        // Add event listener to reset filters button
+        const resetFiltersBtn = document.getElementById('reset-filters-btn');
+        if (resetFiltersBtn) {
+            resetFiltersBtn.addEventListener('click', () => {
+                // Reset all filter buttons
+                document.querySelectorAll('.mood-btn, .genre-btn, .duration-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                // Reset filteredTracks to all tracks
+                filteredTracks = [...tracksData];
+                
+                // Render all tracks
+                renderTrackList();
+            });
+        }
+        
+        return;
+    }
+    
+    // Render each track
+    tracks.forEach(track => {
+        const trackItem = document.createElement('div');
+        trackItem.className = 'track-item';
+        trackItem.dataset.trackId = track.id;
+        
+        // Create mood and genre tags HTML
+        let moodTags = '';
+        if (track.mood && track.mood.length > 0) {
+            moodTags = track.mood.map(mood => 
+                `<span class="tag mood">${mood}</span>`
+            ).join('');
+        }
+        
+        let genreTags = '';
+        if (track.genre && track.genre.length > 0) {
+            genreTags = track.genre.map(genre => 
+                `<span class="tag genre">${genre}</span>`
+            ).join('');
+        }
+        
+        // Set the track item HTML
+        trackItem.innerHTML = `
+            <div class="track-info">
+                <h4>${track.title}</h4>
+                <p>${track.artist}</p>
+                <div class="track-tags">
+                    ${moodTags}
+                    ${genreTags}
+                    ${track.duration ? `<span class="tag duration">${track.duration}</span>` : ''}
+                </div>
+            </div>
+            <div class="track-actions">
+                <button class="play-track-btn"><i class="fas fa-play"></i></button>
+                <button class="add-to-playlist-btn"><i class="fas fa-plus"></i></button>
+            </div>
+        `;
+        
+        // Add event listeners
+        const playButton = trackItem.querySelector('.play-track-btn');
+        playButton.addEventListener('click', () => {
+            loadTrack(track);
+            playTrack();
+        });
+        
+        const addToPlaylistButton = trackItem.querySelector('.add-to-playlist-btn');
+        addToPlaylistButton.addEventListener('click', () => {
+            addToPlaylist(track);
+        });
+        
+        // Add the track item to the container
+        tracksContainer.appendChild(trackItem);
+    });
+}
+
+/**
+ * Seek to a position in the track
+ * @param {Event}event - The input event from the progress slider
+ */
+function seekTrack(event) {
+    if (!audio.duration) return;
+    const seekPosition = parseFloat(event.target.value);
+    audio.currentTime = (seekPosition / 100) * audio.duration;
+    updateProgress();
+}
+
+/**
+ * Set the volume level
+ * @param {number}volume - Volume level between 0 and 1
+ */
+function setVolume(volume) {
+    if (volume < 0) volume = 0;
+    if (volume > 1) volume = 1;
+    
+    audio.volume = volume;
+    
+    // Save the volume setting to localStorage
+    localStorage.setItem('volume', volume.toString());
+    
+    // Update volume icon based on level
+    const volumeIcon = document.querySelector('.volume-container i');
+    if (volumeIcon) {
+        if (volume === 0) {
+            volumeIcon.className = 'fas fa-volume-mute';
+        }else if (volume < 0.5) {
+            volumeIcon.className = 'fas fa-volume-down';
+        }else {
+            volumeIcon.className = 'fas fa-volume-up';
+        }
+    }
+}
+
+/**
+ * Play the next track in the list
+ */
+function playNextTrack() {
+    console.log('Playing next track');
+    nextTrack();
+}
+
+/**
+ * Play the previous track in the list
+ */
+function playPreviousTrack() {
+    console.log('Playing previous track');
+    prevTrack();
+}
+
+/**
  * Set up event listeners for UI elements
  */
 function setupEventListeners() {
-    console.log('Setting up event listeners...');
+    console.log('Setting up event listeners');
     
-    // Player control buttons
-    document.getElementById('play-pause-btn')?.addEventListener('click', togglePlayPause);
-    document.getElementById('next-btn')?.addEventListener('click', playNext);
-    document.getElementById('prev-btn')?.addEventListener('click', playPrevious);
+    // Play/Pause button
+    if (playBtn) {
+        playBtn.addEventListener('click', togglePlayPause);
+    }
     
-    // Also attach listeners to the main player buttons if they exist
-    document.querySelector('.play-pause-btn')?.addEventListener('click', togglePlayPause);
-    document.querySelector('.prev-btn')?.addEventListener('click', playPrevious);
-    document.querySelector('.next-btn')?.addEventListener('click', playNext);
+    // Next/Previous buttons
+    if (prevBtn) {
+        prevBtn.addEventListener('click', playPreviousTrack);
+    }
     
-    // Progress slider
-    const progressSlider = document.getElementById('progress-slider');
-    if (progressSlider) {
-        progressSlider.addEventListener('input', seekTrack);
+    if (nextBtn) {
+        nextBtn.addEventListener('click', playNextTrack);
     }
     
     // Volume slider
-    const volumeSlider = document.getElementById('volume-slider');
     if (volumeSlider) {
-        volumeSlider.addEventListener('input', (e) => {
-            setVolume(e.target.value / 100);
+        volumeSlider.addEventListener('input', updateVolume);
+    }
+    
+    // Progress bar clicks
+    const progressContainer = document.querySelector('.progress-container');
+    if (progressContainer) {
+        progressContainer.addEventListener('click', function(e) {
+            const width = this.clientWidth;
+            const clickX = e.offsetX;
+            const duration = audio.duration;
+            
+            if (duration) {
+                audio.currentTime = (clickX / width) * duration;
+                updateProgress();
+            }
         });
     }
     
     // Mood filter buttons
-    document.querySelectorAll('.mood-btn').forEach(button => {
-        button.addEventListener('click', () => {
-            toggleFilterButton(button, 'mood');
-            applyFilters();
+    if (moodButtons) {
+        moodButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                toggleFilterButton(button, 'mood');
+                applyFilters();
+            });
         });
-    });
+    }
     
     // Genre filter buttons
-    document.querySelectorAll('.genre-btn').forEach(button => {
-        button.addEventListener('click', () => {
-            toggleFilterButton(button, 'genre');
-            applyFilters();
+    if (genreButtons) {
+        genreButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                toggleFilterButton(button, 'genre');
+                applyFilters();
+            });
         });
-    });
+    }
     
     // Duration filter buttons
-    document.querySelectorAll('.duration-btn').forEach(button => {
-        button.addEventListener('click', () => {
-            toggleFilterButton(button, 'duration');
-            applyFilters();
-        });
-    });
-    
-    // Clear All button
-    document.getElementById('clear-all-btn')?.addEventListener('click', () => {
-        document.querySelectorAll('.mood-btn, .genre-btn, .duration-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        filteredTracks = [...tracksData];
-        renderTrackList();
-    });
-    
-    // Track click handling
-    const tracksContainer = document.getElementById('tracks-container');
-    if (tracksContainer) {
-        // Use event delegation instead of attaching to individual tracks
-        tracksContainer.addEventListener('click', (event) => {
-            // Find the closest track-item
-            const trackItem = event.target.closest('.track-item');
-            if (!trackItem) return;
-            
-            // Check if we clicked a specific button
-            if (event.target.closest('.play-track-btn')) {
-                const trackId = trackItem.dataset.trackId;
-                const track = tracksData.find(t => t.id.toString() === trackId);
-                if (track) {
-                    loadTrack(track);
-                    playTrack();
-                }
-            } else if (event.target.closest('.add-to-playlist-btn')) {
-                const trackId = trackItem.dataset.trackId;
-                const track = tracksData.find(t => t.id.toString() === trackId);
-                if (track) {
-                    addToPlaylist(track);
-                }
-            } else if (event.target.closest('.edit-track-btn')) {
-                // Edit track functionality is handled elsewhere
-            } else {
-                // Clicked on the track itself and not a specific button
-                const trackId = trackItem.dataset.trackId;
-                const track = tracksData.find(t => t.id.toString() === trackId);
-                if (track) {
-                    loadTrack(track);
-                    playTrack();
-                }
-            }
+    if (durationButtons) {
+        durationButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                toggleFilterButton(button, 'duration');
+                applyFilters();
+            });
         });
     }
     
-    // Playlist interactions
-    document.getElementById('playlist-container')?.addEventListener('click', handlePlaylistClick);
-    
-    // Clear playlist button
-    document.getElementById('clear-playlist-btn')?.addEventListener('click', clearPlaylist);
-    
-    // Save playlist button
-    document.getElementById('save-playlist-btn')?.addEventListener('click', savePlaylist);
-    
-    // Download playlist button
-    document.getElementById('download-playlist-btn')?.addEventListener('click', downloadPlaylist);
-    
-    // Download collection button
-    document.getElementById('download-collection-btn')?.addEventListener('click', () => {
-        // Implementation depends on your download functionality
-        alert('Download collection functionality is coming soon!');
-    });
-    
-    // Keyboard event listeners
-    document.addEventListener('keydown', (e) => {
-        // Space bar for play/pause
-        if (e.code === 'Space' && !e.target.matches('input, textarea')) {
-            e.preventDefault();
-            togglePlayPause();
-        }
-        
-        // Arrow keys for next/previous
-        if (e.code === 'ArrowRight' && !e.target.matches('input, textarea')) {
-            playNext();
-        }
-        
-        if (e.code === 'ArrowLeft' && !e.target.matches('input, textarea')) {
-            playPrevious();
+    // Save current position when page unloads
+    window.addEventListener('beforeunload', () => {
+        if (currentTrack && audio) {
+            localStorage.setItem('currentTrackPosition', audio.currentTime.toString());
         }
     });
     
-    // Add event listener for upload link
-    if (document.getElementById('upload-link')) {
-        document.getElementById('upload-link').addEventListener('click', (e) => {
-            // You can modify this to add password protection or other logic
-            console.log('Upload link clicked');
-        });
+    // Playlist related events
+    if (playlistContainer) {
+        playlistContainer.addEventListener('click', handlePlaylistClick);
     }
     
-    // Add a Gist Settings button if it doesn't exist
-    if (!document.getElementById('gist-settings-btn') && document.querySelector('.player-controls')) {
-        const gistSettingsBtn = document.createElement('button');
-        gistSettingsBtn.id = 'gist-settings-btn';
-        gistSettingsBtn.className = 'control-btn';
-        gistSettingsBtn.title = 'GitHub Gist Settings';
-        gistSettingsBtn.innerHTML = '<i class="fas fa-cog"></i>';
-        gistSettingsBtn.addEventListener('click', () => {
-            console.log('Gist settings button clicked');
-            const setupContainer = document.querySelector('.gist-setup-container');
-            if (setupContainer) {
-                setupContainer.classList.toggle('hidden');
-            } else {
-                console.warn('Gist setup container not found');
-                alert('GitHub Gist settings panel not available. Try refreshing the page.');
-            }
-        });
-        
-        const controlsContainer = document.querySelector('.player-controls');
-        if (controlsContainer) {
-            controlsContainer.appendChild(gistSettingsBtn);
-        }
+    if (clearPlaylistBtn) {
+        clearPlaylistBtn.addEventListener('click', clearPlaylist);
+    }
+    
+    if (downloadPlaylistBtn) {
+        downloadPlaylistBtn.addEventListener('click', downloadPlaylist);
     }
 }
 
@@ -2532,31 +2490,6 @@ function renderPlaylist() {
     
     // Set up drag and drop functionality
     setupDragAndDrop();
-}
-
-/**
- * Handle click on track item
- * @param {Event} event - The click event
- */
-function handleTrackClick(event) {
-    // Find the track item that was clicked
-    const trackItem = event.target.closest('.track-item');
-    if (!trackItem) return;
-    
-    // Get the track ID from the data attribute
-    const trackId = trackItem.dataset.trackId;
-    if (!trackId) return;
-    
-    // Find the track in the tracks data
-    const track = tracksData.find(t => t.id.toString() === trackId);
-    if (!track) return;
-    
-    // Load and play the track
-    loadTrack(track);
-    playTrack();
-    
-    // Update the UI to show which track is playing
-    updateCurrentTrackIndicator();
 }
 
 // Close the module/script
